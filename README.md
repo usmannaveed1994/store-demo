@@ -89,7 +89,9 @@ components/ui/                 shadcn/ui primitives (Tailwind v4, `cn()` helper)
 lib/db/
   index.ts                     Lazily created Drizzle client (pg Pool)
   schema/users.ts              `users` table, enum and inferred types
+  schema/products.ts           `products` table, enum and inferred types
   queries/users.ts             Typed queries + the Clerk upsert
+  queries/products.ts          Typed catalogue queries (read/create/update/delete)
 lib/users/
   clerk-user.ts                Normalises Backend API + webhook user shapes
   sync-user.ts                 Sync entry points
@@ -113,6 +115,29 @@ application-owned and is never overwritten by Clerk syncs.
 | `role`                        | `customer` (default) or `admin`            |
 | `last_sign_in_at`             | Optional, from Clerk                       |
 | `created_at` / `updated_at`   | `updated_at` is maintained by Drizzle       |
+
+### `products`
+
+Storefront catalogue. Money is stored as `numeric(10, 2)` (exact decimals, so
+Drizzle returns `price` / `compare_at_price` as strings) and reads hide
+soft-deleted rows. Helpers live in `lib/db/queries/products.ts`
+(`getProductBySlug`, `listActiveProducts`, `insertProduct`, ...).
+
+| Column                        | Notes                                       |
+| ----------------------------- | ------------------------------------------- |
+| `id`                          | UUID primary key (`gen_random_uuid()`)       |
+| `slug`                        | Unique, URL-safe key                         |
+| `title` / `description`       | Display name + optional long copy            |
+| `price`                       | Exact decimal selling price                  |
+| `compare_at_price`            | Optional "was" price for sale badges         |
+| `currency`                    | ISO-4217 code, defaults to `USD`             |
+| `sku`                         | Optional, unique when set                    |
+| `stock`                       | Units on hand, defaults to `0`               |
+| `status`                      | `draft` (default), `active` or `archived`    |
+| `is_featured`                 | Curation flag, defaults to `false`           |
+| `image_url`                   | Optional primary image                       |
+| `created_at` / `updated_at`   | `updated_at` is maintained by Drizzle        |
+| `deleted_at`                  | Soft delete marker, `NULL` while live        |
 
 ## Auth notes
 
