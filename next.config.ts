@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  allowedDevOrigins: ["turbulent-craving-tartar.ngrok-free.dev"],
   experimental: {
     agentFeedback: true,
   },

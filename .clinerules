@@ -1,0 +1,29 @@
+# Project Rules & Scalability Guidelines for Cline
+
+## 1. Architectural Stack & Context
+- **Framework:** Next.js 16 (App Router, Dynamic by default)
+- **Authentication:** Clerk (`@clerk/nextjs`)
+- **Database Layer:** PostgreSQL
+- **ORM Architecture:** Drizzle ORM 
+- **UI & Styling:** Tailwind CSS and modular Shadcn UI components.
+
+## 2. Code Quality & Scalability Patterns
+- **Strict TypeScript:** Absolutely no usage of `any`. Define robust types and interfaces for all function signatures, parameters, and database model representations.
+- **Component Reusability:** Split UI into highly isolated blocks. Generic base elements belong in `components/ui/` (managed by shadcn). Feature-scoped, complex layouts go into route-specific sub-components.
+- **Server-First Mindset:** Keep components as Next.js Server Components by default to optimize bundle size. Apply `"use client"` intentionally and selectively at the lowest node possible in the DOM tree when client-side hooks (`useState`, UI transitions, local events) are mandatory.
+- **Clean File Structures:** Group layout modifications, custom business hooks, database utilities, and UI elements clearly. Avoid mixing visual layout code with heavily nested backend API logic.
+
+## 3. Database & Authentication Implementation Rules
+- **Prisma & Drizzle Coordination:** Ensure changes made to the `prisma/schema.prisma` file are appropriately reflected in the Drizzle schema declaration mappings if querying across shared tables.
+- **Authentication Walls:** Enforce secure protection globally via Clerk `clerkMiddleware`. Wrap secure pages or layout levels in `<ClerkProvider>`. Isolate unauthorized queries immediately.
+- **Data Isolation:** Ensure all data operations fetching user-specific records securely filter results by validating the user's `userId` supplied from Clerk's `auth()` or `currentUser()` hooks.
+
+## 4. UI Layout & Component Guidelines
+- **Shadcn UI Generation:** When generating new visual components, reuse existing Shadcn primitives instead of creating arbitrary raw tags from scratch.
+- **Tailwind Consistency:** Use strict utility combinations. Prefer Tailwind class organization best practices (e.g., layout -> box model -> typography -> visual styling). Use the `cn()` helper utility for dynamic, predictable runtime class merging.
+- **Responsive Layouts:** Code mobile-first layout designs using native responsive utility modifiers (`sm:`, `md:`, `lg:`).
+
+## 5. Build, Execution, & Verification Workflows
+- **Package Manager:** Standardize all tasks utilizing `npm` exclusively.
+- **Dependency Safety:** Never hallucinate imports. Confirm paths to utility functions or newly installed npm libraries before coding imports.
+- **Validation Routine:** Before finalizing or declaring a task successfully resolved, execute `npm run build` or `npm run lint` inside the integrated environment to guarantee compilation passes cleanly with zero warnings.
