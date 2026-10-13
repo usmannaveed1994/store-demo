@@ -15,8 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Store Demo",
-  description: "Next.js 16 storefront backed by Clerk, Drizzle ORM and Prisma Postgres.",
+  title: "Diecast 64 — 1:64 Model Cars",
+  description:
+    "Collector-grade 1:64 scale diecast model cars with licensed castings, opening parts and display-ready detail.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
