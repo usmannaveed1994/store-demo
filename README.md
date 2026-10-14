@@ -80,18 +80,22 @@ if (!user) return null;
 
 ```
 app/
+  api/products/route.ts        Public catalogue feed (GET /api/products)
   api/webhooks/clerk/route.ts  Clerk -> Postgres user sync (signature verified)
+  collections/                 Public catalogue page (grid fed by the API route)
   sign-in/[[...sign-in]]/      Clerk <SignIn />  (Google, GitHub, email + password)
   sign-up/[[...sign-up]]/      Clerk <SignUp />
   layout.tsx                   Root layout, wraps the app in <ClerkProvider>
-  page.tsx                     Landing page with sign in / sign up buttons
+  page.tsx                     Landing page, hero + "Start collecting" CTA
 components/ui/                 shadcn/ui primitives (Tailwind v4, `cn()` helper)
+components/site-header.tsx     Shared header (wordmark + Clerk account controls)
 lib/db/
   index.ts                     Lazily created Drizzle client (pg Pool)
   schema/users.ts              `users` table, enum and inferred types
   schema/products.ts           `products` table, enum and inferred types
   queries/users.ts             Typed queries + the Clerk upsert
   queries/products.ts          Typed catalogue queries (read/create/update/delete)
+lib/products/dto.ts            JSON wire types for the catalogue API
 lib/users/
   clerk-user.ts                Normalises Backend API + webhook user shapes
   sync-user.ts                 Sync entry points
@@ -138,6 +142,33 @@ soft-deleted rows. Helpers live in `lib/db/queries/products.ts`
 | `image_url`                   | Optional primary image                       |
 | `created_at` / `updated_at`   | `updated_at` is maintained by Drizzle        |
 | `deleted_at`                  | Soft delete marker, `NULL` while live        |
+
+## Storefront
+
+The catalogue is a public page backed by a public JSON feed.
+
+`GET /api/products` returns published products only (soft-deleted rows and
+`draft` / `archived` rows are filtered out in `listActiveProducts`) as
+`{ "products": ProductDto[] }`. `ProductDto` lives in `lib/products/dto.ts` and
+differs from the database row in one way: Drizzle returns `Date` objects, which
+JSON turns into ISO strings. `price` and `compareAtPrice` stay strings, because
+they are `numeric` columns.
+
+The response is capped at 100 rows (`CATALOGUE_LIMIT` in the handler), because
+the grid has no pager yet and the query layer's own pagination default would
+otherwise hide products. Swap the cap for a `limit` / `offset` pair when the grid
+grows a pager.
+
+`/collections` is the landing page's "Start collecting" target. Its shell is
+static and `ProductGrid` (a client component in
+`app/collections/_components/`) fetches the feed on mount, so loading, error and
+empty states are all rendered in the browser.
+
+Products with an `image_url` render through `next/image`. Relative paths are
+optimised; remote URLs are passed through untouched (`unoptimized`) because the
+image optimiser refuses hosts that are not declared in
+`images.remotePatterns`. Add your CDN to that list if you want remote photos
+optimised too.
 
 ## Auth notes
 
