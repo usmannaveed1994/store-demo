@@ -54,6 +54,16 @@ export async function getProductBySlug(slug: string): Promise<Product | undefine
   return product;
 }
 
+/**
+ * Newest first, then a stable tiebreaker.
+ *
+ * `created_at` is not unique: rows inserted in one transaction all share the
+ * timestamp Postgres took from `now()`. A sort with no unique key leaves tied
+ * rows in no guaranteed order, and offset paging relies on that order being
+ * repeatable — otherwise page two can repeat or skip rows from page one. `id`
+ * breaks the tie deterministically, so `created_at` keeps deciding the order
+ * and `id` only settles the rows `created_at` cannot separate.
+ */
 export async function listProducts(filters: ProductFilters = {}): Promise<Product[]> {
   const { limit = DEFAULT_LIMIT, offset = 0 } = filters;
 
@@ -61,7 +71,7 @@ export async function listProducts(filters: ProductFilters = {}): Promise<Produc
     .select()
     .from(products)
     .where(and(...buildReadConditions(filters)))
-    .orderBy(desc(products.createdAt))
+    .orderBy(desc(products.createdAt), desc(products.id))
     .limit(limit)
     .offset(offset);
 }

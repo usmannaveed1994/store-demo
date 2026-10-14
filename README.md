@@ -1,8 +1,8 @@
 # store-demo
 
 A store demo built on **Next.js 16** (App Router, Cache Components, React 19),
-**Clerk** for authentication and **Drizzle ORM** over a **Prisma-hosted Postgres**
-database.
+**Clerk** for authentication, **Drizzle ORM** over a **Prisma-hosted Postgres**
+database and **TanStack Query** for the storefront's client-side data fetching.
 
 Prisma is used only as the hosted Postgres provider. The schema, migrations and
 queries are owned by Drizzle (`lib/db/schema/`, `drizzle/`).
@@ -86,6 +86,7 @@ app/
   sign-in/[[...sign-in]]/      Clerk <SignIn />  (Google, GitHub, email + password)
   sign-up/[[...sign-up]]/      Clerk <SignUp />
   layout.tsx                   Root layout, wraps the app in <ClerkProvider>
+  providers.tsx                Client providers (the TanStack Query cache)
   page.tsx                     Landing page, hero + "Start collecting" CTA
 components/ui/                 shadcn/ui primitives (Tailwind v4, `cn()` helper)
 components/site-header.tsx     Shared header (wordmark + Clerk account controls)
@@ -149,20 +150,49 @@ The catalogue is a public page backed by a public JSON feed.
 
 `GET /api/products` returns published products only (soft-deleted rows and
 `draft` / `archived` rows are filtered out in `listActiveProducts`) as
-`{ "products": ProductDto[] }`. `ProductDto` lives in `lib/products/dto.ts` and
-differs from the database row in one way: Drizzle returns `Date` objects, which
-JSON turns into ISO strings. `price` and `compareAtPrice` stay strings, because
-they are `numeric` columns.
+`{ "products": ProductDto[], "hasMore": boolean }`. `ProductDto` lives in
+`lib/products/dto.ts` and differs from the database row in one way: Drizzle
+returns `Date` objects, which JSON turns into ISO strings. `price` and
+`compareAtPrice` stay strings, because they are `numeric` columns.
 
-The response is capped at 100 rows (`CATALOGUE_LIMIT` in the handler), because
-the grid has no pager yet and the query layer's own pagination default would
-otherwise hide products. Swap the cap for a `limit` / `offset` pair when the grid
-grows a pager.
+The feed is paged, because the grid scrolls:
+
+- `limit` — rows per page. Defaults to `PRODUCTS_PAGE_SIZE` (12) and is clamped
+  to `1..50`, so `?limit=9999` cannot serialise the table. Anything non-numeric
+  falls back to the default.
+- `offset` — rows to skip. Whole numbers `>= 0`; anything else is read as `0`.
+
+`hasMore` is worked out by selecting one row beyond `limit` and checking whether
+it arrived. That avoids a `COUNT(*)` and never promises a further page when the
+catalogue is an exact multiple of `limit`. The next offset is deliberately not
+sent back: the client already knows it, because it is how many products it has
+rendered.
+
+Ordering is `created_at DESC, id DESC`. The `id` tiebreaker is not decoration:
+rows inserted in one transaction share a `created_at`, and a sort without a
+unique key leaves tied rows in no guaranteed order, so offset paging can repeat
+or skip products between pages. Offset paging stays sensitive to *concurrent*
+writes — a product created mid-scroll shifts every later page — so move to
+keyset cursors if the catalogue starts changing under readers.
 
 `/collections` is the landing page's "Start collecting" target. Its shell is
-static and `ProductGrid` (a client component in
-`app/collections/_components/`) fetches the feed on mount, so loading, error and
-empty states are all rendered in the browser.
+static and `ProductGrid` (a client component in `app/collections/_components/`)
+reads the feed with React Query's `useInfiniteQuery`, so loading, error and empty
+states are all rendered in the browser. Later pages are appended to the tiles
+already on screen, triggered by `IntersectionObserver` on the sentinel below the
+grid (600px ahead of the fold) or by pressing "Load more"; both call the same
+`fetchNextPage`, and the observer is switched off while a page is in flight or
+after a failed one, so no page is requested twice. A failed append keeps the
+loaded products visible (`isFetchNextPageError`) and offers a retry rather than
+replacing the grid with an error page; a failed *first* page has nothing worth
+keeping (`isLoadingError`) and takes the area over instead.
+
+The cache itself lives in `app/providers.tsx`, mounted in the root layout:
+`Providers` is a client component that receives `children` and passes them
+straight through, so every page below it stays a Server Component and only the
+grid reaches the browser. `staleTime` is a minute there, which is why returning
+to `/collections` renders the cached pages immediately instead of re-fetching
+them.
 
 Products with an `image_url` render through `next/image`. Relative paths are
 optimised; remote URLs are passed through untouched (`unoptimized`) because the
