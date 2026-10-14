@@ -85,11 +85,11 @@ app/
   collections/                 Public catalogue page (grid fed by the API route)
   sign-in/[[...sign-in]]/      Clerk <SignIn />  (Google, GitHub, email + password)
   sign-up/[[...sign-up]]/      Clerk <SignUp />
-  layout.tsx                   Root layout, wraps the app in <ClerkProvider>
+  layout.tsx                   Root layout: <ClerkProvider> + the shared <SiteHeader />
   providers.tsx                Client providers (the TanStack Query cache)
   page.tsx                     Landing page, hero + "Start collecting" CTA
 components/ui/                 shadcn/ui primitives (Tailwind v4, `cn()` helper)
-components/site-header.tsx     Shared header (wordmark + Clerk account controls)
+components/site-header.tsx     Sticky site header (wordmark + Clerk account controls)
 lib/db/
   index.ts                     Lazily created Drizzle client (pg Pool)
   schema/users.ts              `users` table, enum and inferred types
@@ -209,4 +209,11 @@ optimised too.
 - `cacheComponents` is enabled, so any server component that reads the session
   (Clerk's `<Show>`, `currentUser()`, `auth()`) must sit inside a `<Suspense>`
   boundary. See `app/page.tsx` for the pattern.
+- The site header is rendered once, from `app/layout.tsx`, so every route gets
+  the same chrome and no page renders it itself. It is `sticky` with a
+  translucent, blurred background (`bg-background/80 backdrop-blur-md`), which
+  keeps it legible while the landing page's dark hero scrolls underneath it.
+  Pages only own their own `<main>`; the hero takes `flex-1` rather than
+  `min-h-svh`, so it fills the height left below the header instead of
+  overflowing by it.
 

@@ -3,12 +3,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { Show } from "@clerk/nextjs";
 
-import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
   return (
-    <main className="relative flex min-h-svh flex-1 flex-col overflow-hidden">
+    
+    <main className="relative flex flex-1 flex-col overflow-hidden">
       {/*
         The photo is taken out of flow with `fill`, so it covers the whole
         viewport while the copy below centres itself on top of it. `preload`
@@ -30,9 +30,6 @@ export default function Home() {
         className="absolute inset-0 bg-linear-to-b from-black/70 via-black/30 to-black/85"
         aria-hidden
       />
-
-      {/* Transparent header: no background of its own, so the hero shows through. */}
-      <SiteHeader overlay />
 
       <section className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-24 pt-8 text-center">
         <p className="text-xs font-medium uppercase tracking-[0.35em] text-white/70">

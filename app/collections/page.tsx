@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 
-import { SiteHeader } from "@/components/site-header";
 import { ProductGrid } from "./_components/product-grid";
 
 export const metadata: Metadata = {
@@ -16,8 +15,6 @@ export const metadata: Metadata = {
 export default function CollectionsPage() {
   return (
     <main className="flex flex-1 flex-col bg-background">
-      <SiteHeader />
-
       <section className="mx-auto w-full max-w-7xl flex-1 px-6 py-12 sm:px-10 sm:py-16">
         <p className="text-xs font-medium uppercase tracking-[0.35em] text-muted-foreground">
           The catalogue
