@@ -2,7 +2,7 @@
 
 A store demo built on **Next.js 16** (App Router, Cache Components, React 19),
 **Clerk** for authentication, **Drizzle ORM** over a **Prisma-hosted Postgres**
-database and **TanStack Query** for the storefront's client-side data fetching.
+database and **TanStack Query** for the client-side data fetching.
 
 Prisma is used only as the hosted Postgres provider. The schema, migrations and
 queries are owned by Drizzle (`lib/db/schema/`, `drizzle/`).
