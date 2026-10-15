@@ -1,0 +1,139 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 1. PRs + main: validate against a throwaway DB
+  # ─────────────────────────────────────────────
+  validate:
+    name: Validate migrations
+    runs-on: ubuntu-latest
+
+    # Cancel outdated runs when a new commit is pushed to a PR.
+    # Never cancel runs on main.
+    concurrency:
+      group: validate-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check migration consistency
+        run: npm run db:check
+
+      - name: Apply migrations to CI database
+        run: npm run db:migrate
+
+      - name: Fail if schema changes have no migration
+        run: |
+          npx drizzle-kit generate
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::schema.ts changed but no migration was committed. Run 'npm run db:generate'."
+            git status --porcelain
+            exit 1
+          fi
+
+      - name: Type check
+        run: |
+          npx next typegen
+          npx tsc --noEmit
+
+  # ─────────────────────────────────────────────
+  # 2. main only: migrate production
+  # ─────────────────────────────────────────────
+  migrate-prod:
+    name: Migrate production DB
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: productiondb
+    concurrency:
+      group: production-release
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations to production
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
+  # ─────────────────────────────────────────────
+  # 3. main only: deploy to Vercel after migration
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to Vercel
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: migrate-prod
+    runs-on: ubuntu-latest
+    environment: productiondb
+    concurrency:
+      group: production-release
+      cancel-in-progress: false
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel production settings
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
