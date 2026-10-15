@@ -35,6 +35,14 @@ export type ProductsResponse = {
   hasMore: boolean;
 };
 
+export type ProductDetailResponse = {
+  product: ProductDto;
+};
+
+export type ApiErrorResponse = {
+  error: string;
+};
+
 /** Converts a database row into the payload the storefront API returns. */
 export function toProductDto(product: Product): ProductDto {
   return {

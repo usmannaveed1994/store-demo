@@ -12,6 +12,7 @@
 - **Component Reusability:** Split UI into highly isolated blocks. Generic base elements belong in `components/ui/` (managed by shadcn). Feature-scoped, complex layouts go into route-specific sub-components.
 - **Server-First Mindset:** Keep components as Next.js Server Components by default to optimize bundle size. Apply `"use client"` intentionally and selectively at the lowest node possible in the DOM tree when client-side hooks (`useState`, UI transitions, local events) are mandatory.
 - **Clean File Structures:** Group layout modifications, custom business hooks, database utilities, and UI elements clearly. Avoid mixing visual layout code with heavily nested backend API logic.
+- **Comments:** Do not add long paragraphs of comments or explanations inside the code blocks. Keep code comments strictly minimal, concise, and focused only on complex logic. Write code that is self-explanatory.
 
 ## 3. Database & Authentication Implementation Rules
 - **Prisma & Drizzle Coordination:** Ensure changes made to the `prisma/schema.prisma` file are appropriately reflected in the Drizzle schema declaration mappings if querying across shared tables.

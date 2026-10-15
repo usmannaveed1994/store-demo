@@ -1,73 +1,31 @@
 import Image from "next/image";
+import Link from "next/link";
 
+import { BuyButton } from "@/components/buy-button";
+import { isRemoteUrl } from "@/lib/images";
 import type { ProductDto } from "@/lib/products/dto";
+import { getPricing } from "@/lib/products/presentation";
 
 type ProductCardProps = {
   product: ProductDto;
 };
 
-type ProductPricing = {
-  /** Selling price, already formatted for display. */
-  price: string;
-  /** Formatted "was" price, only set when the product is genuinely reduced. */
-  compareAt: string | null;
-};
-
 /**
- * Formats a `numeric` price (a string straight from Postgres) as currency,
- * falling back to the raw value when `Intl` does not recognise the code.
+ * One catalogue tile. Presentational only — the grid owns the data.
+ *
+ * The tile opens `/products/[slug]` through a stretched link: an absolutely
+ * positioned `<Link>` covering the card, rather than an `<a>` wrapped around
+ * everything. The quick-buy button has to live inside the card too, and a
+ * `<button>` nested inside an `<a>` is invalid markup. `isolate` gives the card
+ * a stacking context of its own so the link's `z-10` and the button's `z-20`
+ * stack predictably instead of depending on DOM order.
  */
-function formatPrice(amount: string, currency: string): string {
-  const value = Number(amount);
-
-  if (!Number.isFinite(value)) {
-    return amount;
-  }
-
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value);
-  } catch {
-    return `${currency} ${value.toFixed(2)}`;
-  }
-}
-
-/**
- * `compareAtPrice` is only meaningful when it is set *and* higher than `price`,
- * so both checks live here rather than in the markup.
- */
-function getPricing(product: ProductDto): ProductPricing {
-  const price = product.price;
-  const rawCompareAt = product.compareAtPrice;
-
-  if (rawCompareAt === null) {
-    return { price: formatPrice(price, product.currency), compareAt: null };
-  }
-
-  const compareAt = Number(rawCompareAt);
-
-  if (!Number.isFinite(compareAt) || compareAt <= Number(price)) {
-    return { price: formatPrice(price, product.currency), compareAt: null };
-  }
-
-  return { price: formatPrice(price, product.currency), compareAt: formatPrice(rawCompareAt, product.currency) };
-}
-
-/**
- * Product images come from arbitrary merchant URLs (a `text` column), so only
- * local paths go through the Next.js image optimiser — remote hosts would need
- * an explicit `images.remotePatterns` allow-list first.
- */
-function isRemoteUrl(url: string): boolean {
-  return /^https?:\/\//i.test(url);
-}
-
-/** One catalogue tile. Presentational only — the grid owns the data. */
 export function ProductCard({ product }: ProductCardProps) {
   const pricing = getPricing(product);
   const isSoldOut = product.stock <= 0;
 
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground transition-colors hover:border-foreground/25">
+    <article className="group relative isolate flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground transition-colors hover:border-foreground/25 focus-within:border-foreground/25 focus-within:ring-[3px] focus-within:ring-ring/50">
       <div className="relative aspect-4/3 overflow-hidden bg-muted">
         {product.imageUrl ? (
           <Image
@@ -99,6 +57,10 @@ export function ProductCard({ product }: ProductCardProps) {
             Sold out
           </span>
         ) : null}
+
+        <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          <BuyButton size="sm" stock={product.stock} className="shadow-md" />
+        </div>
       </div>
 
       <div className="flex flex-1 flex-col gap-2 p-5">
@@ -115,6 +77,17 @@ export function ProductCard({ product }: ProductCardProps) {
           ) : null}
         </div>
       </div>
+
+      {/*
+        Covers the whole tile, so clicking anywhere on the card opens the
+        product. The label names the destination for screen readers, because
+        the anchor itself has no text.
+      */}
+      <Link
+        href={`/products/${product.slug}`}
+        aria-label={`View details for ${product.title}`}
+        className="absolute inset-0 z-10"
+      />
     </article>
   );
 }

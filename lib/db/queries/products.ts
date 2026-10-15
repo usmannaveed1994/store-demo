@@ -44,11 +44,21 @@ export async function getProductById(id: string): Promise<Product | undefined> {
   return product;
 }
 
+/**
+ * The published product with this slug, or `undefined`.
+ *
+ * The publish rule is the one `listActiveProducts` applies to every listing:
+ * only an `active`, non-deleted row is a product the storefront may show. A
+ * `draft` or `archived` row is therefore indistinguishable from a slug that was
+ * never used, which is what both callers need — the detail page and
+ * `GET /api/products/[slug]` may not confirm that an unpublished slug exists.
+ * Keep them in step by changing `status` here rather than at the call sites.
+ */
 export async function getProductBySlug(slug: string): Promise<Product | undefined> {
   const [product] = await getDb()
     .select()
     .from(products)
-    .where(and(eq(products.slug, slug), isNull(products.deletedAt)))
+    .where(and(...buildReadConditions({ status: "active" }), eq(products.slug, slug)))
     .limit(1);
 
   return product;

@@ -27,6 +27,9 @@ queries are owned by Drizzle (`lib/db/schema/`, `drizzle/`).
    cp .env.example .env.local
    ```
 
+   `DATABASE_URL`, the Clerk keys and `CLERK_WEBHOOK_SIGNING_SECRET` are all
+   required.
+
 5. Apply the schema:
 
    ```bash
@@ -81,14 +84,17 @@ if (!user) return null;
 ```
 app/
   api/products/route.ts        Public catalogue feed (GET /api/products)
+  api/products/[slug]/route.ts One product (GET /api/products/[slug])
   api/webhooks/clerk/route.ts  Clerk -> Postgres user sync (signature verified)
   collections/                 Public catalogue page (grid fed by the API route)
+  products/[slug]/page.tsx     Product detail page (streams one product row)
   sign-in/[[...sign-in]]/      Clerk <SignIn />  (Google, GitHub, email + password)
   sign-up/[[...sign-up]]/      Clerk <SignUp />
   layout.tsx                   Root layout: <ClerkProvider> + the shared <SiteHeader />
   providers.tsx                Client providers (the TanStack Query cache)
   page.tsx                     Landing page, hero + "Start collecting" CTA
 components/ui/                 shadcn/ui primitives (Tailwind v4, `cn()` helper)
+components/buy-button.tsx      Shared "Buy now" button (inert, sold-out aware)
 components/site-header.tsx     Sticky site header (wordmark + Clerk account controls)
 lib/db/
   index.ts                     Lazily created Drizzle client (pg Pool)
@@ -96,7 +102,10 @@ lib/db/
   schema/products.ts           `products` table, enum and inferred types
   queries/users.ts             Typed queries + the Clerk upsert
   queries/products.ts          Typed catalogue queries (read/create/update/delete)
-lib/products/dto.ts            JSON wire types for the catalogue API
+lib/images.ts                  Image URL helpers (remote vs optimisable)
+lib/products/
+  dto.ts                       JSON wire types for the catalogue API
+  presentation.ts              Money formatting + sale-pricing rules shared by both views
 lib/users/
   clerk-user.ts                Normalises Backend API + webhook user shapes
   sync-user.ts                 Sync entry points
@@ -175,6 +184,14 @@ or skip products between pages. Offset paging stays sensitive to *concurrent*
 writes — a product created mid-scroll shifts every later page — so move to
 keyset cursors if the catalogue starts changing under readers.
 
+One product at a time is served by `GET /api/products/[slug]` as
+`{ "product": ProductDto }`, under the same publish rule: an unknown slug, a
+`draft`, an `archived` row and a soft-deleted row all answer `404` with
+`{ "error": "Product not found." }`. The four are deliberately indistinguishable,
+so the endpoint cannot be used to confirm which unpublished slugs exist. The
+detail page does not call it — see below for why it reads the same query
+directly instead.
+
 `/collections` is the landing page's "Start collecting" target. Its shell is
 static and `ProductGrid` (a client component in `app/collections/_components/`)
 reads the feed with React Query's `useInfiniteQuery`, so loading, error and empty
@@ -199,6 +216,54 @@ optimised; remote URLs are passed through untouched (`unoptimized`) because the
 image optimiser refuses hosts that are not declared in
 `images.remotePatterns`. Add your CDN to that list if you want remote photos
 optimised too.
+
+### Product detail
+
+Every catalogue tile links to `/products/[slug]` — the `slug` column is the URL
+key, which is why it is unique and URL-safe. The route renders one product in
+full: photo, state badges (sale, featured, sold out), price with any "was" price
+and its saving, the whole description, the stock line, SKU, currency and the
+`created_at` / `updated_at` timestamps.
+
+Unlike the grid, this page does not go through the API: it reads the row with
+`getProductBySlug`, the same query the catalogue endpoints are built on, because
+one row needs no paging and `notFound()` is available for a slug that does not
+resolve — a hop through the app's own HTTP API would buy nothing. The publish
+rule (`active` and not soft-deleted) lives inside that query, so the page and
+`GET /api/products/[slug]` cannot drift: an unknown slug, a `draft`, an
+`archived` row and a deleted row are the same missing product to both. The price
+is that `generateMetadata` and the view each perform the lookup — two point reads
+of a unique index per view; wrap the query in React's `cache` if that ever
+matters.
+
+`page.tsx` never awaits `params` or the fetch itself. It hands the unresolved
+`params` promise to `ProductDetail` and lets that component do both inside a
+`<Suspense>` boundary, so nothing above the boundary touches runtime data: the
+frame and the skeleton prerender and prefetch, and the product streams in as the
+row arrives (`◐` in `next build`, not a blocking `ƒ`). The one thing that shape
+costs is the status code for a slug that does not exist — starting the stream
+fixes the response at `200`, so the `notFound()` inside the boundary renders the
+404 UI in a `200` and lets Next inject `noindex`, which is the documented
+behaviour for a mid-stream `notFound()`. A hard `404` would mean letting this
+route block on the server (`export const instant = false`), trading the instant
+navigation away for an error code only crawlers and API clients ever see.
+
+`generateStaticParams` is deliberately absent — listing slugs would make
+`next build` query Postgres from the build machine, and `DATABASE_URL` is a
+runtime concern, exactly as in `GET /api/products`.
+
+The tile keeps its two interactive elements separate: a stretched `<Link>`
+covering the card opens the product, and `components/buy-button.tsx` sits above
+it (`z-20` over `z-10`) so it keeps its own clicks. The button appears over the
+photo on hover and whenever anything in the tile has keyboard focus, and it is
+the same component the detail page renders full width under the price — one
+definition of the "Buy now" / "Sold out" copy and the sold-out rule. Checkout is
+not wired up yet, so pressing it does nothing.
+
+Money and sale rules live in `lib/products/presentation.ts` (`formatPrice`,
+`getPricing`), shared by the server-rendered detail view and the client-rendered
+grid so both format prices and decide what counts as a real reduction the same
+way.
 
 ## Auth notes
 
