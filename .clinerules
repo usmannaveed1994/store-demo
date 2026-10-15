@@ -15,7 +15,7 @@
 - **Comments:** Do not add long paragraphs of comments or explanations inside the code blocks. Keep code comments strictly minimal, concise, and focused only on complex logic. Write code that is self-explanatory.
 
 ## 3. Database & Authentication Implementation Rules
-- **Prisma & Drizzle Coordination:** Ensure changes made to the `prisma/schema.prisma` file are appropriately reflected in the Drizzle schema declaration mappings if querying across shared tables.
+- **Drizzle Schema Architecture:** All database schemas must reside in your designated Drizzle schema file or folder.
 - **Authentication Walls:** Enforce secure protection globally via Clerk `clerkMiddleware`. Wrap secure pages or layout levels in `<ClerkProvider>`. Isolate unauthorized queries immediately.
 - **Data Isolation:** Ensure all data operations fetching user-specific records securely filter results by validating the user's `userId` supplied from Clerk's `auth()` or `currentUser()` hooks.
 
@@ -27,4 +27,4 @@
 ## 5. Build, Execution, & Verification Workflows
 - **Package Manager:** Standardize all tasks utilizing `npm` exclusively.
 - **Dependency Safety:** Never hallucinate imports. Confirm paths to utility functions or newly installed npm libraries before coding imports.
-- **Validation Routine:** Before finalizing or declaring a task successfully resolved, execute `npm run build` or `npm run lint` inside the integrated environment to guarantee compilation passes cleanly with zero warnings.
+- **Cost-Optimizing Build Checks:** To prevent excessive API token consumption, DO NOT trigger full production builds (`npm run build`) for intermediate changes. Instead, verify code integrity locally using fast, targeted checks like `npx tsc --noEmit` or `npm run lint`. Only execute a full `npm run build` as a final, absolute verification step once an entire task is completely implemented.
