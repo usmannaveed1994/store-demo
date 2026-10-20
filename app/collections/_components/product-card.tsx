@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { AddToCartButton } from "@/components/add-to-cart-button";
 import { BuyButton } from "@/components/buy-button";
 import { isRemoteUrl } from "@/lib/images";
 import type { ProductDto } from "@/lib/products/dto";
@@ -15,10 +16,14 @@ type ProductCardProps = {
  *
  * The tile opens `/products/[slug]` through a stretched link: an absolutely
  * positioned `<Link>` covering the card, rather than an `<a>` wrapped around
- * everything. The quick-buy button has to live inside the card too, and a
- * `<button>` nested inside an `<a>` is invalid markup. `isolate` gives the card
- * a stacking context of its own so the link's `z-10` and the button's `z-20`
- * stack predictably instead of depending on DOM order.
+ * everything. The quick-buy and add-to-cart buttons have to live inside the card
+ * too, and a `<button>` nested inside an `<a>` is invalid markup. `isolate` gives
+ * the card a stacking context of its own so the link's `z-10` and the buttons'
+ * `z-20` stack predictably instead of depending on DOM order.
+ *
+ * The buttons only appear on hover from `sm:` up. Touch screens have no hover, so
+ * below that breakpoint the pair sits over the photo permanently instead of being
+ * unreachable behind a `group-hover` that never fires.
  */
 export function ProductCard({ product }: ProductCardProps) {
   const pricing = getPricing(product);
@@ -58,8 +63,14 @@ export function ProductCard({ product }: ProductCardProps) {
           </span>
         ) : null}
 
-        <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        <div className="absolute inset-x-3 bottom-3 z-20 flex flex-col gap-2 transition-opacity duration-200 sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100">
           <BuyButton size="sm" stock={product.stock} className="shadow-md" />
+          <AddToCartButton
+            productId={product.id}
+            stock={product.stock}
+            size="sm"
+            className="shadow-md"
+          />
         </div>
       </div>
 

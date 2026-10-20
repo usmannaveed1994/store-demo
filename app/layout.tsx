@@ -33,10 +33,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       >
         <body className="flex min-h-full flex-col">
           
-          <SiteHeader />
-
-          {/* Inside <ClerkProvider> so a query can read auth state later on. */}
-          <Providers>{children}</Providers>
+          {/* Wraps the header too: its cart badge reads the same client cache. */}
+          <Providers>
+            <SiteHeader />
+            {children}
+          </Providers>
         </body>
       </html>
     </ClerkProvider>

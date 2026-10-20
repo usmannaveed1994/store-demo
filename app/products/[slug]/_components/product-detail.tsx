@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
 
+import { AddToCartButton } from "@/components/add-to-cart-button";
 import { BuyButton } from "@/components/buy-button";
 import { getProductBySlug } from "@/lib/db/queries/products";
 import { isRemoteUrl } from "@/lib/images";
@@ -96,11 +97,19 @@ export async function ProductDetail({ params }: ProductDetailProps) {
         ) : null}
 
         {/*
-          The page's primary action. `h-12` overrides the `lg` height so it is
-          unmistakably the thing to press, and it is intentionally inert: the
-          checkout flow does not exist yet.
+          The page's primary actions. Buy now keeps the checkout placeholder and
+          Add to cart writes to the saved cart, so the shopper can keep browsing.
+          `h-12` overrides the `lg` height so the pair is unmistakably the thing
+          to press.
         */}
-        <BuyButton stock={product.stock} className="h-12 text-base font-semibold shadow-md" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <BuyButton stock={product.stock} className="h-12 text-base font-semibold shadow-md" />
+          <AddToCartButton
+            productId={product.id}
+            stock={product.stock}
+            className="h-12 text-base font-semibold shadow-md"
+          />
+        </div>
 
         <dl className="grid gap-x-8 gap-y-5 border-t border-border pt-6 sm:grid-cols-2">
           <Spec label="Availability" value={describeStock(product.stock)} />
