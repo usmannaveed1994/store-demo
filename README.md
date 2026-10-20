@@ -85,23 +85,38 @@ if (!user) return null;
 app/
   api/products/route.ts        Public catalogue feed (GET /api/products)
   api/products/[slug]/route.ts One product (GET /api/products/[slug])
+  api/cart/route.ts            Read or empty the caller's cart (GET, DELETE)
+  api/cart/items/route.ts      Add a product to the cart (POST)
+  api/cart/items/[productId]/route.ts  Change a line's quantity, or remove it
   api/webhooks/clerk/route.ts  Clerk -> Postgres user sync (signature verified)
+  cart/                        Cart page (reads the shared React Query cache)
   collections/                 Public catalogue page (grid fed by the API route)
   products/[slug]/page.tsx     Product detail page (streams one product row)
   sign-in/[[...sign-in]]/      Clerk <SignIn />  (Google, GitHub, email + password)
   sign-up/[[...sign-up]]/      Clerk <SignUp />
-  layout.tsx                   Root layout: <ClerkProvider> + the shared <SiteHeader />
+  layout.tsx                   Root layout: <ClerkProvider> + <Providers> + header
   providers.tsx                Client providers (the TanStack Query cache)
   page.tsx                     Landing page, hero + "Start collecting" CTA
 components/ui/                 shadcn/ui primitives (Tailwind v4, `cn()` helper)
 components/buy-button.tsx      Shared "Buy now" button (inert, sold-out aware)
-components/site-header.tsx     Sticky site header (wordmark + Clerk account controls)
+components/add-to-cart-button.tsx  Shared "Add to cart" button (React Query mutation)
+components/cart-indicator.tsx  Header cart link with the live item count
+components/site-header.tsx     Sticky site header (wordmark + cart + account controls)
 lib/db/
   index.ts                     Lazily created Drizzle client (pg Pool)
   schema/users.ts              `users` table, enum and inferred types
   schema/products.ts           `products` table, enum and inferred types
+  schema/carts.ts              `carts` + `cart_items`, `cart_status` enum
   queries/users.ts             Typed queries + the Clerk upsert
   queries/products.ts          Typed catalogue queries (read/create/update/delete)
+  queries/carts.ts             Cart reads and mutations, incl. the guest merge
+lib/cart/
+  dto.ts                       JSON wire types for the cart API
+  validation.ts                Quantity / UUID parsing for request bodies
+  identity.ts                  Server-only: resolves the caller's cart (cookie or user)
+  http.ts                      Shared JSON responses for the cart route handlers
+  api.ts                       Browser fetchers + the `["cart"]` query key
+  hooks.ts                     React Query hooks (query, mutations, auth resync)
 lib/images.ts                  Image URL helpers (remote vs optimisable)
 lib/products/
   dto.ts                       JSON wire types for the catalogue API
@@ -152,6 +167,38 @@ soft-deleted rows. Helpers live in `lib/db/queries/products.ts`
 | `image_url`                   | Optional primary image                       |
 | `created_at` / `updated_at`   | `updated_at` is maintained by Drizzle        |
 | `deleted_at`                  | Soft delete marker, `NULL` while live        |
+
+### `carts`
+
+One cart per browser (guest) or per account. The `carts_owner_check` constraint
+keeps the two identities mutually exclusive: a row has a `user_id`, or a
+`guest_token`, never both and never neither.
+
+| Column                        | Notes                                        |
+| ----------------------------- | -------------------------------------------- |
+| `id`                          | UUID primary key (`gen_random_uuid()`)        |
+| `user_id`                     | FK to `users`, `NULL` for a guest cart        |
+| `guest_token`                 | Unique, `NULL` for a signed-in cart           |
+| `status`                      | `active` (default), `converted`, `abandoned`  |
+| `created_at` / `updated_at`   | `updated_at` is maintained by Drizzle         |
+
+### `cart_items`
+
+One row per product per cart, enforced by the unique index on
+`(cart_id, product_id)` — that index is what lets an add be a single
+`INSERT ... ON CONFLICT DO UPDATE` instead of a read-then-write race.
+
+There is deliberately **no price column**. Totals are joined from `products` on
+every read, so a price change or a product leaving the catalogue shows up
+immediately and a client cannot pin a price it likes.
+
+| Column                        | Notes                                              |
+| ----------------------------- | -------------------------------------------------- |
+| `id`                          | UUID primary key (`gen_random_uuid()`)              |
+| `cart_id`                     | FK to `carts`, cascades on delete                   |
+| `product_id`                  | FK to `products`, `restrict` (history is not lost)  |
+| `quantity`                    | Units, defaults to `1`, clamped to stock on write   |
+| `created_at` / `updated_at`   | Establishes the line order; `updated_at` by Drizzle |
 
 ## Storefront
 
@@ -252,18 +299,127 @@ navigation away for an error code only crawlers and API clients ever see.
 `next build` query Postgres from the build machine, and `DATABASE_URL` is a
 runtime concern, exactly as in `GET /api/products`.
 
-The tile keeps its two interactive elements separate: a stretched `<Link>`
-covering the card opens the product, and `components/buy-button.tsx` sits above
-it (`z-20` over `z-10`) so it keeps its own clicks. The button appears over the
-photo on hover and whenever anything in the tile has keyboard focus, and it is
-the same component the detail page renders full width under the price — one
-definition of the "Buy now" / "Sold out" copy and the sold-out rule. Checkout is
-not wired up yet, so pressing it does nothing.
+The tile keeps its interactive elements separate: a stretched `<Link>` covering
+the card opens the product, and the two buttons in
+`components/buy-button.tsx` and `components/add-to-cart-button.tsx` sit above it
+(`z-20` over `z-10`) so they keep their own clicks. Both are the same components
+the detail page renders under the price, so the "Buy now" / "Sold out" copy, the
+sold-out rule and the mutation live in one place. From `sm:` up the pair only
+appears over the photo on hover or keyboard focus; below `sm:` it is always
+visible, because a touch screen has no hover to reveal it with. Checkout is not
+wired up yet, so "Buy now" does nothing.
 
 Money and sale rules live in `lib/products/presentation.ts` (`formatPrice`,
 `getPricing`), shared by the server-rendered detail view and the client-rendered
 grid so both format prices and decide what counts as a real reduction the same
 way.
+
+## Cart
+
+A cart lives in Postgres, not in `localStorage`: it survives a browser profile
+reset, it can be merged on sign-in, and the price a shopper is shown is always the
+price the server would charge.
+
+Who owns it is decided in `lib/cart/identity.ts`:
+
+- **Signed in.** The cart is the `active` row with the caller's `user_id`.
+  `auth()` supplies the Clerk id, which `users.clerk_user_id` maps to the local
+  row; if the webhook has not created that row yet, the `currentUser()` fallback
+  in `getCurrentDatabaseUser` does.
+- **Guest.** The first `POST /api/cart/items` mints a random token, stores it as
+  `guest_token` and sets it in an httpOnly, `SameSite=Lax` cookie
+  (`store_demo_cart`, 30 days). A `GET` never writes, so a visitor who has added
+  nothing gets the empty cart back with `id: null`.
+
+`resolveCart` is server-only and reads the cookie, which is why it runs in Route
+Handlers and never during a page render — cookies cannot be written mid-render.
+
+Merging happens on the first cart request after signing in: guest lines are
+summed into the user's cart (`least(existing + guest, stock)`) and the guest cart
+row is deleted in the same transaction, so a retry cannot apply the same
+quantities twice. Lines whose product is no longer sellable are skipped, and the
+cookie is dropped.
+
+### API
+
+Every endpoint answers with the whole cart, so the client never needs a follow-up
+`GET`:
+
+```json
+{
+  "cart": {
+    "id": "8f14e45f-ceea-467a-9575-1c0f4b1a2e77",
+    "lines": [
+      {
+        "productId": "f10691d7-63d1-4325-8c88-93a81a44633e",
+        "slug": "hot-wheels-lamborghini-countach-yellow",
+        "title": "Hot Wheels Lamborghini Countach - Yellow",
+        "imageUrl": "https://images.example.com/countach.jpg",
+        "unitPrice": "4.99",
+        "currency": "USD",
+        "quantity": 2,
+        "stock": 60,
+        "isAvailable": true,
+        "lineTotal": "9.98"
+      }
+    ],
+    "itemCount": 2,
+    "subtotal": "9.98",
+    "currency": "USD"
+  }
+}
+```
+
+| Request                              | Effect                                            |
+| ------------------------------------ | ------------------------------------------------- |
+| `GET /api/cart`                      | Read the cart (never creates one)                 |
+| `POST /api/cart/items`               | `{ productId, quantity? }` — add, or bump a line  |
+| `PATCH /api/cart/items/[productId]`  | `{ quantity }` — absolute; `0` removes the line   |
+| `DELETE /api/cart/items/[productId]` | Remove one line                                   |
+| `DELETE /api/cart`                   | Empty the cart, keeping the row and the cookie    |
+
+Errors are `{ "error": "…" }` with a matching status: `400` for an unparseable
+body, a malformed `productId` or a quantity outside `0..99`; `404` when the
+product is not published (`draft`, `archived`, soft-deleted) and when a `PATCH` or
+`DELETE` arrives for a visitor with no cart; `409` when the product is sold out.
+
+Rules the server owns, so a crafted request cannot break them:
+
+- **Price and currency** are joined from `products` on every request. Nothing
+  about money is accepted from the client.
+- **Quantity is clamped to stock** rather than rejected, on both add and set, so
+  the shopper ends up with every available unit instead of an error they cannot
+  act on. The add is one `INSERT ... ON CONFLICT DO UPDATE`, so two concurrent
+  clicks cannot lose an increment.
+- **A line that stops being sellable stays in the cart** with
+  `isAvailable: false` and `lineTotal: null`. It is never silently dropped, so the
+  shopper can see why the total moved, and it is excluded from `itemCount` and
+  `subtotal`.
+- `subtotal` is `null` when nothing is buyable, which is why the page renders `—`
+  rather than `$0.00`.
+
+### Client
+
+`lib/cart/hooks.ts` wraps `lib/cart/api.ts`:
+
+- `useCartQuery` — key `["cart"]`, `staleTime: 0`, so a remount re-reads instead
+  of trusting a cache another tab or a sign-in may have moved on from.
+- `useAddToCart`, `useSetCartItemQuantity`, `useRemoveCartItem`, `useClearCart` —
+  each writes the returned cart straight into `setQueryData(["cart"])`. No
+  invalidation and no second request, so the header badge updates on the same
+  tick as the page.
+- `useCartAuthSync` — invalidates `["cart"]` when Clerk's session changes. It has
+  to exist because signing in hands control back with a client-side redirect, so
+  the `QueryClient` and the cached guest cart are still in memory.
+
+The header badge and `/cart` share that single cache entry, which is why the cart
+page needs no per-visitor server render and stays static.
+
+The page (`app/cart/`) renders a loading skeleton, an error state with a retry, an
+empty state, and then one row per line: a stepper capped at `stock`, a remove
+button and a line total, followed by the subtotal and an inert "Checkout" button.
+The stepper's `−` stops at one unit so a mis-click cannot delete a line — removal
+is its own button.
 
 ## Auth notes
 
@@ -278,6 +434,8 @@ way.
   the same chrome and no page renders it itself. It is `sticky` with a
   translucent, blurred background (`bg-background/80 backdrop-blur-md`), which
   keeps it legible while the landing page's dark hero scrolls underneath it.
+  It sits inside `<Providers>`, so the cart badge reads the same React Query
+  cache as the pages below it.
   Pages only own their own `<main>`; the hero takes `flex-1` rather than
   `min-h-svh`, so it fills the height left below the header instead of
   overflowing by it.

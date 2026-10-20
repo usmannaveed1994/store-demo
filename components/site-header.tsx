@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Show, UserButton } from "@clerk/nextjs";
 
+import { CartIndicator } from "@/components/cart-indicator";
 import { Button } from "@/components/ui/button";
 
 export function SiteHeader() {
@@ -14,14 +15,19 @@ export function SiteHeader() {
         <span className="text-lg font-semibold tracking-tight">Diecast 64</span>
       </Link>
 
-      <Suspense fallback={<AuthControls />}>
-        <Show when="signed-in" fallback={<AuthControls />}>
-          <UserButton />
-        </Show>
-      </Suspense>
+      <div className="flex items-center gap-2">
+        <CartIndicator />
+
+        <Suspense fallback={<AuthControls />}>
+          <Show when="signed-in" fallback={<AuthControls />}>
+            <UserButton />
+          </Show>
+        </Suspense>
+      </div>
     </header>
   );
 }
+
 
 /**
  * Signed-out controls. They double as the `<Suspense>` fallback, which is how
