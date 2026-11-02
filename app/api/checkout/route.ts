@@ -1,4 +1,4 @@
-import { connection, NextResponse, type NextRequest } from "next/server";
+import { after, connection, NextResponse, type NextRequest } from "next/server";
 
 import { resolveCart } from "@/lib/cart/identity";
 import type {
@@ -12,6 +12,12 @@ import { parseShippingDetails } from "@/lib/checkout/validation";
 import { getCartDto } from "@/lib/db/queries/carts";
 import { createPendingOrder, failPendingOrder } from "@/lib/db/queries/orders";
 import { readJsonBody } from "@/lib/http";
+import {
+  flushPosthogLogs,
+  logCheckoutRequestValidated,
+  logCheckoutSessionCreated,
+  logCheckoutSessionCreationFailed,
+} from "@/lib/posthog-logs";
 import { toCents } from "@/lib/money";
 
 type CheckoutApiResponse = NextResponse<CheckoutResponse | CheckoutErrorResponse>;
@@ -75,6 +81,9 @@ export async function POST(request: NextRequest): Promise<CheckoutApiResponse> {
     return errorJson("There is nothing to charge for this cart.", 409);
   }
 
+  logCheckoutRequestValidated();
+  after(flushPosthogLogs);
+
   const order = await createPendingOrder({ cart, shipping: shipping.value, userId });
 
   try {
@@ -83,8 +92,11 @@ export async function POST(request: NextRequest): Promise<CheckoutApiResponse> {
       appUrl: resolveAppUrl(request.nextUrl.origin),
     });
 
+    logCheckoutSessionCreated();
+
     return NextResponse.json<CheckoutResponse>({ url: session.url });
   } catch (error) {
+    logCheckoutSessionCreationFailed();
     console.error(`[checkout] Could not open a Stripe session for order ${order.order.id}.`, error);
 
     await failPendingOrder(order.order.id);

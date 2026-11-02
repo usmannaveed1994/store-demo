@@ -29,14 +29,19 @@ export function CartIndicator() {
   const label = itemCount > 0 ? `Cart, ${itemCount} ${itemCount === 1 ? "item" : "items"}` : "Cart";
 
   return (
-    <Button asChild variant="ghost" size="lg">
+    <Button
+      asChild
+      variant="ghost"
+      size="lg"
+      className="h-9 min-w-9 gap-1 has-[>svg]:px-2 sm:h-10 sm:min-w-0 sm:gap-2 sm:has-[>svg]:px-4"
+    >
       {/* The icon is decorative: `aria-label` already names the link and its count. */}
       <Link
         href="/cart"
         aria-label={label}
-        className={cn(isBumping && "motion-safe:animate-cart-bump")}
+        className={cn("shrink-0", isBumping && "motion-safe:animate-cart-bump")}
       >
-        <ShoppingCart aria-hidden className="size-4" />
+        <ShoppingCart aria-hidden className="size-4 shrink-0" />
         {itemCount > 0 ? (
           <span
             aria-hidden

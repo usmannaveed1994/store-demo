@@ -7,6 +7,7 @@ import {
   findOrderByCheckoutSessionId,
   markOrderClosed,
   markOrderPaid,
+  type MarkOrderPaidResult,
   type OrderWithItems,
 } from "@/lib/db/queries/orders";
 import { toCents } from "@/lib/money";
@@ -102,9 +103,9 @@ function paymentIntentIdFrom(session: Stripe.Checkout.Session): string | null {
 }
 
 /** Fulfils a session object the webhook already verified. */
-export async function fulfilCheckoutSession(
+export async function fulfilCheckoutSessionWithResult(
   session: Stripe.Checkout.Session,
-): Promise<OrderWithItems | null> {
+): Promise<MarkOrderPaidResult | null> {
   if (session.payment_status !== "paid") {
     return null;
   }
@@ -115,12 +116,16 @@ export async function fulfilCheckoutSession(
     await attachCheckoutSession({ orderId: session.metadata.orderId, sessionId: session.id });
   }
 
-  const result = await markOrderPaid({
+  return markOrderPaid({
     sessionId: session.id,
     paymentIntentId: paymentIntentIdFrom(session),
   });
+}
 
-  return result?.order ?? null;
+export async function fulfilCheckoutSession(
+  session: Stripe.Checkout.Session,
+): Promise<OrderWithItems | null> {
+  return (await fulfilCheckoutSessionWithResult(session))?.order ?? null;
 }
 
 async function retrieveSession(sessionId: string): Promise<Stripe.Checkout.Session | null> {
