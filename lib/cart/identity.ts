@@ -20,6 +20,8 @@ const CART_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 export type ResolvedCart = {
   cartId: string | null;
   guestToken: string | null;
+  /** Local `users.id` when the caller is signed in; `null` for a guest. */
+  userId: string | null;
 };
 
 function cartCookieOptions() {
@@ -82,24 +84,24 @@ export async function resolveCart({ create }: { create: boolean }): Promise<Reso
       cookieStore.delete(CART_COOKIE_NAME);
     }
 
-    return { cartId: cart?.id ?? null, guestToken: null };
+    return { cartId: cart?.id ?? null, guestToken: null, userId };
   }
 
   if (guestToken) {
     const existing = await findCartByGuestToken(guestToken);
 
     if (existing) {
-      return { cartId: existing.id, guestToken };
+      return { cartId: existing.id, guestToken, userId: null };
     }
   }
 
   if (!create) {
-    return { cartId: null, guestToken };
+    return { cartId: null, guestToken, userId: null };
   }
 
   const token = crypto.randomUUID();
   const cart = await createCart({ guestToken: token });
   cookieStore.set(CART_COOKIE_NAME, token, cartCookieOptions());
 
-  return { cartId: cart.id, guestToken: token };
+  return { cartId: cart.id, guestToken: token, userId: null };
 }

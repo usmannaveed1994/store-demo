@@ -3,6 +3,7 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { CartDto, CartLineDto } from "@/lib/cart/dto";
 import { getDb } from "@/lib/db";
 import { cartItems, carts, products, type Cart, type ProductStatus } from "@/lib/db/schema";
+import { fromCents, toCents } from "@/lib/money";
 
 /** Only carts in this state are read or written by the storefront. */
 const ACTIVE_CART = "active" as const;
@@ -39,17 +40,6 @@ type CartLineRow = {
   quantity: number;
 };
 
-
-/** Money is exact to two decimals, so arithmetic happens in whole cents. */
-function toCents(amount: string): number {
-  const value = Number(amount);
-
-  return Number.isFinite(value) ? Math.round(value * 100) : 0;
-}
-
-function fromCents(cents: number): string {
-  return (cents / 100).toFixed(2);
-}
 
 /**
  * Maps a joined row to the wire shape.

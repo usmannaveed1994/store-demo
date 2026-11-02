@@ -1,6 +1,7 @@
 import { connection, type NextRequest } from "next/server";
 
-import { cartJson, errorJson, readJsonBody, type CartApiResponse } from "@/lib/cart/http";
+import { cartJson, errorJson, type CartApiResponse } from "@/lib/cart/http";
+import { readJsonBody } from "@/lib/http";
 import { resolveCart } from "@/lib/cart/identity";
 import { isUuid, MAX_ITEM_QUANTITY, parseQuantity } from "@/lib/cart/validation";
 import { addCartItem } from "@/lib/db/queries/carts";
