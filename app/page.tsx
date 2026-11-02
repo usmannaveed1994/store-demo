@@ -16,16 +16,16 @@ export default function Home() {
         this as the LCP image.
       */}
       <Image
-        src="/hero.jpg"
+        src="/images/home_hero.webp"
         alt="A row of 1:64 scale diecast model cars lined up on a display shelf"
         fill
         preload
         sizes="100vw"
-        className="object-cover object-center"
+        className="hero-background object-cover object-[center_70%]"
       />
 
       {/* Dulling layers that keep the white copy legible over any photo. */}
-      <div className="absolute inset-0 bg-black/55" aria-hidden />
+      <div className="absolute inset-0 bg-black/40" aria-hidden />
       <div
         className="absolute inset-0 bg-linear-to-b from-black/70 via-black/30 to-black/85"
         aria-hidden
