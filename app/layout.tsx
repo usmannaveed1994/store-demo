@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
 import { Providers } from "./providers";
+import { Suspense } from "react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,7 +36,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           
           {/* Wraps the header too: its cart badge reads the same client cache. */}
           <Providers>
-            <SiteHeader />
+            <Suspense>
+              <SiteHeader />
+            </Suspense>        
             {children}
           </Providers>
         </body>
