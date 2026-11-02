@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Check, ShoppingCart } from "lucide-react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { useAddToCart } from "@/lib/cart/hooks";
@@ -12,6 +13,8 @@ type AddToCartButtonProps = {
   stock: number;
   size?: ButtonProps["size"];
   variant?: ButtonProps["variant"];
+  /** Swaps the label for a round cart icon, for spots too tight for text. */
+  iconOnly?: boolean;
   className?: string;
 };
 
@@ -23,6 +26,7 @@ export function AddToCartButton({
   stock,
   size = "lg",
   variant = "secondary",
+  iconOnly = false,
   className,
 }: AddToCartButtonProps) {
   const addToCart = useAddToCart();
@@ -57,22 +61,36 @@ export function AddToCartButton({
   const message = addToCart.error ? addToCart.error.message : justAdded ? "Added to cart." : "";
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className={cn("flex flex-col gap-1", iconOnly && "items-end")}>
       <Button
         type="button"
-        size={size}
+        size={iconOnly ? "icon" : size}
         variant={variant}
         disabled={soldOut || addToCart.isPending}
         onClick={handleClick}
-        className={cn("w-full", className)}
+        // The icon carries no text, so the state has to be named here.
+        aria-label={iconOnly ? (soldOut ? "Sold out" : "Add to cart") : undefined}
+        className={cn(!iconOnly && "w-full", iconOnly && "rounded-full", className)}
       >
-        {label}
+        {iconOnly ? (
+          justAdded ? (
+            <Check aria-hidden className="size-4" />
+          ) : (
+            <ShoppingCart aria-hidden className="size-4" />
+          )
+        ) : (
+          label
+        )}
       </Button>
 
       {/* Always mounted so the result of a click is announced, not only shown. */}
       <p
         aria-live="polite"
-        className={cn("text-xs", addToCart.error ? "text-destructive" : "sr-only")}
+        className={cn(
+          "text-xs",
+          addToCart.error ? "text-destructive" : "sr-only",
+          iconOnly && "max-w-32 text-right",
+        )}
       >
         {message}
       </p>
