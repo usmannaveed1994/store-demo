@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, or } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import { products, type NewProduct, type Product, type ProductStatus } from "@/lib/db/schema";
@@ -10,17 +10,24 @@ export type ProductUpdate = Partial<Omit<NewProduct, "id" | "createdAt">>;
 export type ProductFilters = {
   status?: ProductStatus;
   featured?: boolean;
+  /** Case-insensitive substring matched against the title, SKU and slug. */
+  search?: string;
   limit?: number;
   offset?: number;
 };
 
 const DEFAULT_LIMIT = 20;
 
+/** `%`, `_` and `\` are LIKE metacharacters, so a search for `50%` must not become a wildcard. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
 /**
  * Shared `WHERE` conditions for the read helpers: never surface soft-deleted
- * rows, then apply the optional `status` / `featured` filters.
+ * rows, then apply the optional `status` / `featured` / `search` filters.
  */
-function buildReadConditions(filters: Pick<ProductFilters, "status" | "featured">) {
+function buildReadConditions(filters: Pick<ProductFilters, "status" | "featured" | "search">) {
   const conditions = [isNull(products.deletedAt)];
 
   if (filters.status) {
@@ -31,8 +38,24 @@ function buildReadConditions(filters: Pick<ProductFilters, "status" | "featured"
     conditions.push(eq(products.isFeatured, filters.featured));
   }
 
+  const search = filters.search?.trim();
+
+  if (search) {
+    const pattern = `%${escapeLikePattern(search)}%`;
+    const match = or(
+      ilike(products.title, pattern),
+      ilike(products.sku, pattern),
+      ilike(products.slug, pattern),
+    );
+
+    if (match) {
+      conditions.push(match);
+    }
+  }
+
   return conditions;
 }
+
 
 export async function getProductById(id: string): Promise<Product | undefined> {
   const [product] = await getDb()
