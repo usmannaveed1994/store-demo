@@ -36,11 +36,10 @@ export default function Home() {
           1:64 scale collectibles
         </p>
         <h1 className="max-w-3xl text-balance text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
-          Diecast Model Cars, Down to the Last Detail
+          Everything 1:64,<br /> Down to the Last Detail.
         </h1>
         <p className="max-w-xl text-pretty text-base text-white/80 sm:text-lg">
-          Collector-grade 1:64 replicas with licensed castings, opening parts and display-ready
-          finishing — built for the shelf, ready for the road.
+          Discover the world of 1:64 scale — from collector-grade diecast models to detailed dioramas, miniature accessories, and everything in between.
         </p>
         <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
           <Button asChild size="lg" className="bg-white text-black hover:bg-white/90">
