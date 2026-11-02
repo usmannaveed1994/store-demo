@@ -1,3 +1,5 @@
+"use client";
+
 import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -5,10 +7,18 @@ import { Show, UserButton } from "@clerk/nextjs";
 
 import { CartIndicator } from "@/components/cart-indicator";
 import { Button } from "@/components/ui/button";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 export function SiteHeader() {
+  const pathname = usePathname();
+  const isHomePage = pathname === "/";
+  
   return (
-    <header className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background/80 px-6 py-5 backdrop-blur-md sm:px-10">
+    <header className={cn("sticky top-0 z-20 flex shrink-0 items-center justify-between gap-4 border-b border-border px-6 py-5 sm:px-10", 
+      isHomePage
+          ? "absolute inset-x-0 border-transparent bg-transparent"
+          : "sticky border-border bg-background/80 backdrop-blur-md")}>
       <Link href="/" className="flex items-center gap-3">
         {/* The wordmark already names the brand, so the mark is decorative. */}
         <Image src="/logo.svg" alt="" width={40} height={40} className="size-10" />
