@@ -20,9 +20,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Diecast 64 — 1:64 Model Cars",
+  title: "Diecast 64 | 1:64 Diecast Cars, Dioramas & Collectibles",
   description:
-    "Collector-grade 1:64 scale diecast model cars with licensed castings, opening parts and display-ready detail.",
+    "Explore the world of 1:64 scale collectibles. Discover premium diecast model cars, detailed dioramas, miniature accessories and everything you need to build your own 1:64 world.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
