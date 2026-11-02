@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, ShoppingCart } from "lucide-react";
+import posthog from "posthog-js";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { useAddToCart } from "@/lib/cart/hooks";
@@ -46,6 +47,7 @@ export function AddToCartButton({
   function handleClick() {
     addToCart.mutate(productId, {
       onSuccess: () => {
+        posthog.capture("cart_item_added", { product_id: productId });
         setJustAdded(true);
 
         if (resetTimer.current !== null) {

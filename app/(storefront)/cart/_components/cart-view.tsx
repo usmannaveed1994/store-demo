@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Trash2 } from "lucide-react";
+import posthog from "posthog-js";
 
 import { Button } from "@/components/ui/button";
 import type { CartDto } from "@/lib/cart/dto";
@@ -86,7 +87,11 @@ function CartContents({ cart }: { cart: CartDto }) {
           variant="ghost"
           size="sm"
           disabled={clearCart.isPending}
-          onClick={() => clearCart.mutate()}
+          onClick={() =>
+            clearCart.mutate(undefined, {
+              onSuccess: () => posthog.capture("cart_cleared"),
+            })
+          }
           className="text-muted-foreground hover:text-foreground"
         >
           <Trash2 aria-hidden className="size-4" />
@@ -110,9 +115,22 @@ function CartContents({ cart }: { cart: CartDto }) {
             line={line}
             isBusy={busyProductId === line.productId}
             onChangeQuantity={(quantity) =>
-              setQuantity.mutate({ productId: line.productId, quantity })
+              setQuantity.mutate(
+                { productId: line.productId, quantity },
+                {
+                  onSuccess: () =>
+                    posthog.capture("cart_item_quantity_changed", {
+                      product_id: line.productId,
+                      quantity,
+                    }),
+                },
+              )
             }
-            onRemove={() => removeItem.mutate(line.productId)}
+            onRemove={() =>
+              removeItem.mutate(line.productId, {
+                onSuccess: () => posthog.capture("cart_item_removed", { product_id: line.productId }),
+              })
+            }
           />
         ))}
       </ul>

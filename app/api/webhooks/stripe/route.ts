@@ -1,9 +1,11 @@
 import type Stripe from "stripe";
 import { connection } from "next/server";
 
-import { fulfilCheckoutSession } from "@/lib/checkout/session";
+import { fulfilCheckoutSessionWithResult } from "@/lib/checkout/session";
 import { markOrderClosed } from "@/lib/db/queries/orders";
+import { getUserById } from "@/lib/db/queries/users";
 import { getStripe } from "@/lib/payments/stripe";
+import { captureServerEvent } from "@/lib/posthog-server";
 
 function json(body: Record<string, unknown>, status: number): Response {
   return Response.json(body, { status });
@@ -44,9 +46,28 @@ export async function POST(request: Request): Promise<Response> {
       // `completed` still needs the payment check: delayed methods complete the
       // session before the money arrives, and the async event follows later.
       case "checkout.session.completed":
-      case "checkout.session.async_payment_succeeded":
-        await fulfilCheckoutSession(event.data.object);
+      case "checkout.session.async_payment_succeeded": {
+        const result = await fulfilCheckoutSessionWithResult(event.data.object);
+
+        // Fulfilment is idempotent, so only the request that transitions the
+        // order to paid emits a conversion event.
+        if (result?.transitioned) {
+          const userId = result.order.order.userId;
+          const user = userId ? await getUserById(userId) : undefined;
+
+          await captureServerEvent(
+            "checkout_completed",
+            {
+              order_total: Number(result.order.order.total),
+              currency: result.order.order.currency,
+              item_count: result.order.items.length,
+              item_quantity: result.order.items.reduce((total, item) => total + item.quantity, 0),
+            },
+            user?.clerkUserId,
+          );
+        }
         break;
+      }
 
       case "checkout.session.async_payment_failed":
         await markOrderClosed({ sessionId: event.data.object.id, status: "failed" });

@@ -18,6 +18,12 @@ export async function getUserByClerkId(clerkUserId: string): Promise<User | unde
   return user;
 }
 
+export async function getUserById(id: string): Promise<User | undefined> {
+  const [user] = await getDb().select().from(users).where(eq(users.id, id)).limit(1);
+
+  return user;
+}
+
 export async function getUserByEmail(email: string): Promise<User | undefined> {
   const [user] = await getDb().select().from(users).where(eq(users.email, email)).limit(1);
 

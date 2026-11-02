@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 import { useState, type FormEvent } from "react";
+import posthog from "posthog-js";
 
 import { Button } from "@/components/ui/button";
 import { useCartQuery } from "@/lib/cart/hooks";
@@ -107,6 +108,17 @@ export function CheckoutForm() {
     setFieldErrors({});
 
     startCheckout.mutate(toShippingDetails(values), {
+      onSuccess: () => {
+        const cart = cartQuery.data;
+
+        if (cart) {
+          posthog.capture("checkout_started", {
+            item_count: cart.itemCount,
+            subtotal: cart.subtotal,
+            currency: cart.currency,
+          });
+        }
+      },
       onError: (error) => {
         if (error instanceof CheckoutRequestError) {
           setFieldErrors(error.fieldErrors);
