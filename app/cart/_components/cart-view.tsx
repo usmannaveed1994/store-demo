@@ -11,6 +11,7 @@ import {
   useRemoveCartItem,
   useSetCartItemQuantity,
 } from "@/lib/cart/hooks";
+import { SHIPPING_FLAT_RATE_CENTS } from "@/lib/checkout/config";
 import { formatPrice } from "@/lib/products/presentation";
 
 import { CartLine } from "./cart-line";
@@ -72,6 +73,7 @@ function CartContents({ cart }: { cart: CartDto }) {
 
   const mutationError = setQuantity.error ?? removeItem.error ?? clearCart.error;
   const subtotal = cart.subtotal && cart.currency ? formatPrice(cart.subtotal, cart.currency) : null;
+  const hasUnavailable = cart.lines.some((line) => !line.isAvailable);
 
   return (
     <div className="mt-8">
@@ -123,15 +125,27 @@ function CartContents({ cart }: { cart: CartDto }) {
           {/* Not `0.00` when nothing is buyable: the total is genuinely unknown. */}
           <p className="mt-1 text-2xl font-semibold text-foreground">{subtotal ?? "—"}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Shipping and taxes are calculated at checkout.
+            {SHIPPING_FLAT_RATE_CENTS === 0
+              ? "Free shipping."
+              : "Shipping is calculated at checkout."}
           </p>
         </div>
 
         <div className="flex flex-col gap-2">
-          <Button type="button" size="lg" disabled className="h-12 px-10 text-base font-semibold">
-            Checkout
+          <Button
+            asChild={!hasUnavailable}
+            type="button"
+            size="lg"
+            disabled={hasUnavailable}
+            className="h-12 px-10 text-base font-semibold"
+          >
+            {hasUnavailable ? "Checkout" : <Link href="/checkout">Checkout</Link>}
           </Button>
-          <p className="text-xs text-muted-foreground">Checkout is not wired up yet.</p>
+          <p className="text-xs text-muted-foreground">
+            {hasUnavailable
+              ? "Remove unavailable items to continue."
+              : "Secure payment by Stripe."}
+          </p>
         </div>
       </div>
     </div>

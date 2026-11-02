@@ -29,6 +29,13 @@
       "when": 1792451483151,
       "tag": "0003_natural_apocalypse",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792539766532,
+      "tag": "0004_curvy_blur",
+      "breakpoints": true
     }
   ]
 }
