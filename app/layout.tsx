@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 
-import { SiteHeader } from "@/components/site-header";
-
 import "./globals.css";
 
 import { Providers } from "./providers";
@@ -19,11 +17,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Diecast 64 — 1:64 Model Cars",
+  title: "Diecast 64 | 1:64 Diecast Cars, Dioramas & Collectibles",
   description:
-    "Collector-grade 1:64 scale diecast model cars with licensed castings, opening parts and display-ready detail.",
+    "Explore the world of 1:64 scale collectibles. Discover premium diecast model cars, detailed dioramas, miniature accessories and everything you need to build your own 1:64 world.",
 };
 
+/**
+ * Root layout: the document, the Clerk provider and the client cache.
+ *
+ * The storefront chrome lives in `app/(storefront)/layout.tsx` instead, so the
+ * admin area can render its own sidebar without inheriting the shop header.
+ */
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <ClerkProvider>
@@ -32,15 +36,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
         <body className="flex min-h-full flex-col">
-          
-          {/* Wraps the header too: its cart badge reads the same client cache. */}
-          <Providers>
-            <SiteHeader />
-            {children}
-          </Providers>
+          {/* Wraps every route: the cart badge reads the same client cache. */}
+          <Providers>{children}</Providers>
         </body>
       </html>
     </ClerkProvider>
   );
 }
+
 

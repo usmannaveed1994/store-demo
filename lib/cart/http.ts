@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 import type { ApiErrorResponse } from "@/lib/products/dto";
 
@@ -15,15 +15,3 @@ export function errorJson(message: string, status: number): CartApiResponse {
   return NextResponse.json<ApiErrorResponse>({ error: message }, { status });
 }
 
-/** Parsed JSON body, or `null` when the request did not carry an object. */
-export async function readJsonBody(request: NextRequest): Promise<Record<string, unknown> | null> {
-  try {
-    const body: unknown = await request.json();
-
-    return typeof body === "object" && body !== null && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}

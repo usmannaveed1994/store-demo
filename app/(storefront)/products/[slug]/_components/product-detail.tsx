@@ -1,11 +1,12 @@
-import Image from "next/image";
 import { notFound } from "next/navigation";
 
 import { AddToCartButton } from "@/components/add-to-cart-button";
 import { BuyButton } from "@/components/buy-button";
+import { listProductImages } from "@/lib/db/queries/product-images";
 import { getProductBySlug } from "@/lib/db/queries/products";
-import { isRemoteUrl } from "@/lib/images";
 import { getPricing } from "@/lib/products/presentation";
+
+import { ProductGallery } from "./product-gallery";
 
 /** Below this many units the stock line warns instead of just counting. */
 const LOW_STOCK_THRESHOLD = 5;
@@ -47,28 +48,20 @@ export async function ProductDetail({ params }: ProductDetailProps) {
 
   const pricing = getPricing(product);
   const soldOut = product.stock <= 0;
+  const images = await listProductImages(product.id);
+
+  // `imageUrl` stays the catalogue thumbnail, so it is the fallback for rows
+  // saved before galleries existed rather than a separate source of truth.
+  const galleryImages =
+    images.length > 0
+      ? images.map((image) => ({ url: image.url, alt: image.alt }))
+      : product.imageUrl
+        ? [{ url: product.imageUrl, alt: null }]
+        : [];
 
   return (
     <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
-      <div className="relative aspect-square overflow-hidden rounded-2xl border border-border bg-muted">
-        {product.imageUrl ? (
-          <Image
-            // The heading beside the photo already names the product.
-            alt=""
-            src={product.imageUrl}
-            fill
-            sizes="(min-width: 1024px) 50vw, 100vw"
-            unoptimized={isRemoteUrl(product.imageUrl)}
-            className="object-cover"
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center bg-linear-to-br from-muted to-muted-foreground/10">
-            <span aria-hidden className="text-5xl font-semibold tracking-tight text-muted-foreground/60">
-              {product.title.slice(0, 2).toUpperCase()}
-            </span>
-          </div>
-        )}
-      </div>
+      <ProductGallery images={galleryImages} title={product.title} />
 
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center gap-2">

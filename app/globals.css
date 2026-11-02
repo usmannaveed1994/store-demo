@@ -82,6 +82,21 @@
   --font-mono: var(--font-geist-mono);
 }
 
+@theme {
+  --animate-cart-bump: cart-bump 400ms ease-out;
+
+  /* A single subtle pop: the header cart replays it when an item is added. */
+  @keyframes cart-bump {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    40% {
+      transform: scale(1.3);
+    }
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -90,6 +105,27 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  }
+}
+
+.hero-background {
+  animation: cinematic-pan 18s linear infinite alternate !important;
+  will-change: transform;
+}
+
+@keyframes cinematic-pan {
+  from {
+    transform: scale(1.1) translateX(-3%);
+  }
+
+  to {
+    transform: scale(1.1) translateX(3%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-background {
+    animation: none !important;
   }
 }
 

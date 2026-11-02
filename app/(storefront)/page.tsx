@@ -16,16 +16,16 @@ export default function Home() {
         this as the LCP image.
       */}
       <Image
-        src="/hero.jpg"
+        src="/images/home_hero.webp"
         alt="A row of 1:64 scale diecast model cars lined up on a display shelf"
         fill
         preload
         sizes="100vw"
-        className="object-cover object-center"
+        className="hero-background object-cover object-[center_70%]"
       />
 
       {/* Dulling layers that keep the white copy legible over any photo. */}
-      <div className="absolute inset-0 bg-black/55" aria-hidden />
+      <div className="absolute inset-0 bg-black/40" aria-hidden />
       <div
         className="absolute inset-0 bg-linear-to-b from-black/70 via-black/30 to-black/85"
         aria-hidden
@@ -36,11 +36,10 @@ export default function Home() {
           1:64 scale collectibles
         </p>
         <h1 className="max-w-3xl text-balance text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
-          Diecast Model Cars, Down to the Last Detail
+          Everything 1:64,<br /> Down to the Last Detail.
         </h1>
         <p className="max-w-xl text-pretty text-base text-white/80 sm:text-lg">
-          Collector-grade 1:64 replicas with licensed castings, opening parts and display-ready
-          finishing — built for the shelf, ready for the road.
+          Discover the world of 1:64 scale — from collector-grade diecast models to detailed dioramas, miniature accessories, and everything in between.
         </p>
         <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
           <Button asChild size="lg" className="bg-white text-black hover:bg-white/90">

@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
   },
   cacheComponents: true,
   partialPrefetching: true,
+  images: {
+    // Admin uploads land in Vercel Blob and are stored as absolute URLs.
+    remotePatterns: [{ protocol: "https", hostname: "*.public.blob.vercel-storage.com" }],
+  },
   turbopack: {
     rules: {
       "*.css": {
