@@ -86,7 +86,7 @@ export async function ProductDetail({ params }: ProductDetailProps) {
         </div>
 
         {product.description ? (
-          <p className="max-w-prose text-pretty text-muted-foreground">{product.description}</p>
+          <p className="max-h-80 overflow-y-auto max-w-prose text-pretty whitespace-pre-line text-muted-foreground">{product.description}</p>
         ) : null}
 
         {/*
