@@ -7,7 +7,7 @@ import { createProduct } from "../actions";
 import { ProductForm } from "../_components/product-form";
 
 export const metadata: Metadata = {
-  title: "New product — Admin",
+  title: "New product",
   robots: { index: false, follow: false },
 };
 

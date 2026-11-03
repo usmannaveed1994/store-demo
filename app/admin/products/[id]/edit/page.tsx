@@ -12,7 +12,7 @@ import { updateProduct } from "../../actions";
 import { ProductForm } from "../../_components/product-form";
 
 export const metadata: Metadata = {
-  title: "Edit product — Admin",
+  title: "Edit product",
   robots: { index: false, follow: false },
 };
 

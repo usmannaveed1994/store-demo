@@ -3,40 +3,51 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { getProductBySlug } from "@/lib/db/queries/products";
+import { buildPageMetadata, SITE_NAME } from "@/lib/metadata";
 
 import { ProductDetail, ProductDetailSkeleton } from "./_components/product-detail";
 
 type ProductDetailPageProps = PageProps<"/products/[slug]">;
 
+/** Social previews clip long copy themselves, usually mid-word. */
+function toSocialDescription(text: string, maxLength = 200): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  const clipped = text.slice(0, maxLength);
+  const lastSpace = clipped.lastIndexOf(" ");
+
+  return `${(lastSpace > 0 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}…`;
+}
+
 /**
- * Metadata for one product.
- *
- * Reading `params` and the product here is request-time work, which Cache
- * Components only permits when the rest of the route defers too. It does: the
- * `params` promise is awaited inside the `<Suspense>` boundary below, so the
- * shell still prerenders and both the metadata and the product stream in with
- * the request.
- *
- * Both this and `ProductDetail` read the row with `getProductBySlug`, so the two
- * cannot disagree about whether a slug exists, and neither waits on an HTTP call
- * to this app's own API. The cost of that is two point reads of the same unique
- * index per view instead of one; wrapping the query in React's `cache` is the
- * answer if that ever shows up in a profile.
+ * Only the product-specific fields are passed: the brand, locale, preview card
+ * fallback and `og:url` come from `buildPageMetadata`.
  */
 export async function generateMetadata({ params }: ProductDetailPageProps): Promise<Metadata> {
   const { slug } = await params;
   const product = await getProductBySlug(slug);
 
-  // A slug with no published row — unknown, draft, archived or deleted — still
-  // needs a title, because `ProductDetail` renders the 404 UI for it.
+  // Unknown, draft, archived and soft-deleted slugs all land here. The 404 UI
+  // needs a title, but no canonical URL, so the rest stays with the layout.
   if (!product) {
-    return { title: "Product not found — Diecast 64" };
+    return { title: "Product not found" };
   }
 
-  return {
-    title: `${product.title} — Diecast 64`,
-    description: product.description ?? `${product.title} from the Diecast 64 catalogue.`,
-  };
+  const description = toSocialDescription(
+    product.description?.trim() || `${product.title} from the ${SITE_NAME} catalogue.`,
+  );
+
+  // `imageUrl` holds the first gallery photo, so this is the photo the page opens on.
+  const image = product.imageUrl ? { url: product.imageUrl, alt: product.title } : undefined;
+
+  return buildPageMetadata({
+    title: product.title,
+    description,
+    path: `/products/${product.slug}`,
+    image,
+  });
 }
 
 /**

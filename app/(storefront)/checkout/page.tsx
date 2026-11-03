@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 
+import { buildPageMetadata } from "@/lib/metadata";
+
 import { CheckoutForm } from "./_components/checkout-form";
 import { CheckoutSummary } from "./_components/checkout-summary";
 
 export const metadata: Metadata = {
-  title: "Checkout — Diecast 64",
-  description: "Delivery details and secure payment.",
+  ...buildPageMetadata({
+    title: "Checkout",
+    description: "Delivery details and secure payment.",
+    path: "/checkout",
+  }),
   robots: { index: false, follow: false },
 };
 

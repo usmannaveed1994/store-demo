@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { buildPageMetadata } from "@/lib/metadata";
+
 import { LegalPage } from "../_components/legal-page";
 
-export const metadata: Metadata = {
-  title: "Terms of service — Diecast 64",
+export const metadata: Metadata = buildPageMetadata({
+  title: "Terms of service",
   description:
     "The terms that apply when you browse Diecast 64, place an order or use your account.",
-};
+  path: "/terms",
+});
 
 const LAST_UPDATED = "November 3, 2026";
 
