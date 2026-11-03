@@ -30,8 +30,8 @@ export function SiteHeader() {
       <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <CartIndicator className={isHomePage ? "text-white" : undefined} />
 
-        <Suspense fallback={<AuthControls />}>
-          <Show when="signed-in" fallback={<AuthControls />}>
+        <Suspense fallback={<AuthControls isHomePage={isHomePage} />}>
+          <Show when="signed-in" fallback={<AuthControls isHomePage={isHomePage} />}>
             <UserButton />
           </Show>
         </Suspense>
@@ -45,10 +45,10 @@ export function SiteHeader() {
  * Signed-out controls. They double as the `<Suspense>` fallback, which is how
  * anonymous visitors get them in the static shell.
  */
-function AuthControls() {
+const AuthControls:  React.FC<{isHomePage?: boolean}> = ({isHomePage}) => {
   return (
     <nav aria-label="Account" className="flex items-center gap-1 sm:gap-2">
-      <Button asChild variant="ghost" size="lg" className="h-9 px-2 sm:h-10 sm:px-6">
+      <Button asChild variant="ghost" size="lg" className={cn("h-9 px-2 sm:h-10 sm:px-6", isHomePage ? "text-white" : undefined )}>
         <Link href="/sign-in">Sign in</Link>
       </Button>
       <Button asChild size="lg" className="h-9 px-3 sm:h-10 sm:px-6">
