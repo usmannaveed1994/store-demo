@@ -360,6 +360,12 @@ is that `generateMetadata` and the view each perform the lookup — two point re
 of a unique index per view; wrap the query in React's `cache` if that ever
 matters.
 
+Social metadata is built in `lib/metadata.ts`: this route passes only what it
+knows — title, description, path and photo — to `buildPageMetadata`, while the
+brand, locale, title suffix and fallback card are declared once and shared by
+every page. The `og:image` is `image_url`, which the admin form keeps equal to
+the first gallery photo, so the preview and the page open on the same shot.
+
 `page.tsx` never awaits `params` or the fetch itself. It hands the unresolved
 `params` promise to `ProductDetail` and lets that component do both inside a
 `<Suspense>` boundary, so nothing above the boundary touches runtime data: the

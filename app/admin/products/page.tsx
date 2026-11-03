@@ -23,7 +23,7 @@ import { PRODUCT_STATUS_OPTIONS } from "@/lib/products/validation";
 import { setProductStatus } from "./actions";
 
 export const metadata: Metadata = {
-  title: "Products — Admin",
+  title: "Products",
   robots: { index: false, follow: false },
 };
 

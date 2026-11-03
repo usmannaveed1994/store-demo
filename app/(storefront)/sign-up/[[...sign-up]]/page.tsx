@@ -2,9 +2,9 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { SignUp } from "@clerk/nextjs";
 
-export const metadata: Metadata = {
-  title: "Sign up | Store Demo",
-};
+import { buildPageMetadata } from "@/lib/metadata";
+
+export const metadata: Metadata = buildPageMetadata({ title: "Sign up", path: "/sign-up" });
 
 export default function SignUpPage() {
   return (

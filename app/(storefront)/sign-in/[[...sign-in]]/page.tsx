@@ -2,9 +2,9 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { SignIn } from "@clerk/nextjs";
 
-export const metadata: Metadata = {
-  title: "Sign in | Store Demo",
-};
+import { buildPageMetadata } from "@/lib/metadata";
+
+export const metadata: Metadata = buildPageMetadata({ title: "Sign in", path: "/sign-in" });
 
 export default function SignInPage() {
   return (

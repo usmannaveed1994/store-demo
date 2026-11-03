@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
+import { buildPageMetadata } from "@/lib/metadata";
+
 import {
   ConfirmationSkeleton,
   OrderConfirmation,
 } from "./_components/order-confirmation";
 
 export const metadata: Metadata = {
-  title: "Order confirmation — Diecast 64",
+  ...buildPageMetadata({ title: "Order confirmation", path: "/checkout/success" }),
   robots: { index: false, follow: false },
 };
 

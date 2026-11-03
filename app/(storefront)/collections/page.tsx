@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 
+import { buildPageMetadata } from "@/lib/metadata";
+
 import { ProductGrid } from "./_components/product-grid";
 
-export const metadata: Metadata = {
-  title: "Collections — Diecast 64",
+export const metadata: Metadata = buildPageMetadata({
+  title: "Collections",
   description:
     "Browse every 1:64 scale release in the Diecast 64 catalogue: licensed castings, opening parts and display-ready finishing.",
-};
+  path: "/collections",
+});
 
 /**
  * Public catalogue page. The shell is static and the grid streams in from

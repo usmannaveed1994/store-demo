@@ -3,6 +3,7 @@ import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 
 import { requireAdmin } from "@/lib/admin/authorization";
+import { SITE_NAME } from "@/lib/metadata";
 
 import { AdminNav } from "./_components/admin-nav";
 
@@ -13,7 +14,8 @@ import { AdminNav } from "./_components/admin-nav";
 export const instant = false;
 
 export const metadata: Metadata = {
-  title: "Admin — Diecast 64",
+  // Admin pages carry their own suffix, so this replaces the storefront template.
+  title: { default: `Admin — ${SITE_NAME}`, template: "%s — Admin" },
   description: "Store administration.",
   robots: { index: false, follow: false },
 };

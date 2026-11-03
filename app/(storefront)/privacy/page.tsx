@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 
+import { buildPageMetadata } from "@/lib/metadata";
+
 import { LegalPage } from "../_components/legal-page";
 
-export const metadata: Metadata = {
-  title: "Privacy policy — Diecast 64",
+export const metadata: Metadata = buildPageMetadata({
+  title: "Privacy policy",
   description:
     "How Diecast 64 collects, uses and protects the information you share when you shop our 1:64 collections.",
-};
+  path: "/privacy",
+});
 
 const LAST_UPDATED = "November 3, 2026";
 

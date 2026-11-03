@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
+import { buildPageMetadata } from "@/lib/metadata";
+
 import { CancelledNotice, CancelledSkeleton } from "./_components/cancelled-notice";
 
 export const metadata: Metadata = {
-  title: "Checkout cancelled — Diecast 64",
+  ...buildPageMetadata({ title: "Checkout cancelled", path: "/checkout/cancel" }),
   robots: { index: false, follow: false },
 };
 

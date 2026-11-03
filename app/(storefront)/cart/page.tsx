@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 
+import { buildPageMetadata } from "@/lib/metadata";
+
 import { CartView } from "./_components/cart-view";
 
 export const metadata: Metadata = {
-  title: "Cart — Diecast 64",
-  description: "Review the 1:64 releases in your cart before checkout.",
+  ...buildPageMetadata({
+    title: "Cart",
+    description: "Review the 1:64 releases in your cart before checkout.",
+    path: "/cart",
+  }),
   // The contents are per visitor, so there is nothing worth indexing.
   robots: { index: false, follow: true },
 };
