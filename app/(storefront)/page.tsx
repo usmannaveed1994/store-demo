@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Show } from "@clerk/nextjs";
 
+import { FloatIn } from "@/components/float-in";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
@@ -32,16 +33,27 @@ export default function Home() {
       />
 
       <section className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-24 pt-8 text-center">
-        <p className="text-xs font-medium uppercase tracking-[0.35em] text-white/70">
-          1:64 scale collectibles
-        </p>
-        <h1 className="max-w-3xl text-balance text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
-          Everything 1:64,<br /> Down to the Last Detail.
-        </h1>
-        <p className="max-w-xl text-pretty text-base text-white/80 sm:text-lg">
-          Discover the world of 1:64 scale — from collector-grade diecast models to detailed dioramas, miniature accessories, and everything in between.
-        </p>
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+        {/* Headline block drifts down from just above, the copy below rises to meet it. */}
+        <FloatIn from="down" delay={0.05} className="flex flex-col items-center gap-6">
+          <p className="text-xs font-medium uppercase tracking-[0.35em] text-white/70">
+            1:64 scale collectibles
+          </p>
+          <h1 className="max-w-3xl text-balance text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
+            Everything 1:64,<br /> Down to the Last Detail.
+          </h1>
+        </FloatIn>
+
+        <FloatIn from="up" delay={0.2} className="max-w-xl">
+          <p className="text-pretty text-base text-white/80 sm:text-lg">
+            Discover the world of 1:64 scale — from collector-grade diecast models to detailed dioramas, miniature accessories, and everything in between.
+          </p>
+        </FloatIn>
+
+        <FloatIn
+          from="up"
+          delay={0.3}
+          className="mt-2 flex flex-wrap items-center justify-center gap-3"
+        >
           <Button asChild size="lg" className="bg-white text-black hover:bg-white/90">
             <Link href="/collections">Start collecting</Link>
           </Button>
@@ -58,7 +70,7 @@ export default function Home() {
               <SignInCta />
             </Show>
           </Suspense>
-        </div>
+        </FloatIn>
       </section>
     </main>
   );
