@@ -81,7 +81,7 @@ export function AddToCartButton({
             <ShoppingCart aria-hidden className="size-4" />
           )
         ) : (
-          label
+          <span className="flex gap-2 items-center justify-center"> <ShoppingCart /> <span>{label}</span></span>
         )}
       </Button>
 
