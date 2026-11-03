@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 
 import { AddToCartButton } from "@/components/add-to-cart-button";
-import { BuyButton } from "@/components/buy-button";
 import { listProductImages } from "@/lib/db/queries/product-images";
 import { getProductBySlug } from "@/lib/db/queries/products";
 import { getPricing } from "@/lib/products/presentation";
@@ -95,14 +94,11 @@ export async function ProductDetail({ params }: ProductDetailProps) {
           `h-12` overrides the `lg` height so the pair is unmistakably the thing
           to press.
         */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <BuyButton stock={product.stock} className="h-12 text-base font-semibold shadow-md" />
           <AddToCartButton
             productId={product.id}
             stock={product.stock}
-            className="h-12 text-base font-semibold shadow-md"
+            className="w-full block h-12 text-base font-semibold shadow-md"
           />
-        </div>
 
         <dl className="grid gap-x-8 gap-y-5 border-t border-border pt-6 sm:grid-cols-2">
           <Spec label="Availability" value={describeStock(product.stock)} />
