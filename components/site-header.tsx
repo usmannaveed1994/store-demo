@@ -28,7 +28,7 @@ export function SiteHeader() {
       </Link>
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-        <CartIndicator />
+        <CartIndicator className={isHomePage ? "text-white" : undefined} />
 
         <Suspense fallback={<AuthControls />}>
           <Show when="signed-in" fallback={<AuthControls />}>

@@ -20,7 +20,7 @@ const BUMP_DURATION_MS = 250;
  * Client-side because the count lives in the React Query cache: a mutation
  * writes the fresh cart there and the badge updates without a server round trip.
  */
-export function CartIndicator() {
+export function CartIndicator({ className }: { className?: string }) {
   useCartAuthSync();
 
   const { data } = useCartQuery();
@@ -33,7 +33,10 @@ export function CartIndicator() {
       asChild
       variant="ghost"
       size="lg"
-      className="h-9 min-w-9 gap-1 has-[>svg]:px-2 sm:h-10 sm:min-w-0 sm:gap-2 sm:has-[>svg]:px-4"
+      className={cn(
+        "h-9 min-w-9 gap-1 has-[>svg]:px-2 sm:h-10 sm:min-w-0 sm:gap-2 sm:has-[>svg]:px-4",
+        className,
+      )}
     >
       {/* The icon is decorative: `aria-label` already names the link and its count. */}
       <Link
