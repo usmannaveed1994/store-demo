@@ -239,7 +239,8 @@ export function ProductForm({
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-semibold text-foreground">Images</h2>
           <p className="text-xs text-muted-foreground">
-            The first image is used for catalogue tiles and social previews.
+            Each image is cropped before it uploads. Drag the photos to reorder them — the first
+            one is the catalogue thumbnail.
           </p>
         </div>
         <ProductImageField initialImages={initialImages} error={errors.imageUrls} />

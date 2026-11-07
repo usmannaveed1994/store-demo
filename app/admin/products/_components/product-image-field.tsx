@@ -1,41 +1,90 @@
 "use client";
 
-import Image from "next/image";
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { upload } from "@vercel/blob/client";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { isRemoteUrl } from "@/lib/images";
 import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+
+import { Input } from "@/components/ui/input";
+import {
+  ALLOWED_IMAGE_TYPES,
   IMAGE_ACCEPT_ATTRIBUTE,
+  MAX_CROP_SOURCE_SIZE_IN_BYTES,
   MAX_GALLERY_IMAGES,
   MAX_IMAGE_SIZE_IN_BYTES,
 } from "@/lib/products/constants";
+
+import { ImageCropDialog } from "./image-crop-dialog";
+import { SortableImageCard } from "./sortable-image-card";
 
 type ProductImageFieldProps = {
   initialImages: string[];
   error?: string;
 };
 
+type QueuedFile = {
+  id: string;
+  file: File;
+  /** Object URL for the crop preview; revoked as soon as the file leaves the queue. */
+  previewUrl: string;
+};
+
+const ALLOWED_TYPES = new Set<string>(ALLOWED_IMAGE_TYPES);
 const MAX_IMAGE_SIZE_IN_MEGABYTES = Math.round(MAX_IMAGE_SIZE_IN_BYTES / (1024 * 1024));
+const MAX_CROP_SOURCE_SIZE_IN_MEGABYTES = Math.round(
+  MAX_CROP_SOURCE_SIZE_IN_BYTES / (1024 * 1024),
+);
 
 /**
  * Gallery editor.
  *
- * Files go from the browser straight to Vercel Blob with a short-lived token
- * from `/api/admin/uploads`; only the resulting URLs travel with the form. The
- * order of the list is the gallery order, which is why every row renders a
- * hidden `imageUrl` input in sequence.
+ * Picked files are cropped in the browser, then travel straight to Vercel Blob
+ * with a short-lived token from `/api/admin/uploads`; only the resulting URLs
+ * go with the form. The order of `images` is the gallery order — every row
+ * renders a hidden `imageUrl` input in sequence and the first is the thumbnail —
+ * so reordering is a plain array move, courtesy of dnd-kit.
  */
 export function ProductImageField({ initialImages, error }: ProductImageFieldProps) {
   const [images, setImages] = useState<string[]>(initialImages);
+  const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Every preview URL handed to the cropper, so unmounting mid-crop cannot leak them.
+  const objectUrlsRef = useRef<string[]>([]);
 
+  useEffect(() => {
+    const urls = objectUrlsRef.current;
+
+    return () => {
+      for (const url of urls) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const activeFile = queue[0] ?? null;
+  const isBusy = isUploading || activeFile !== null;
   const isFull = images.length >= MAX_GALLERY_IMAGES;
 
-  async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
+  function handleFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     // Reset so picking the same file twice still fires a change event.
     event.target.value = "";
@@ -44,33 +93,95 @@ export function ProductImageField({ initialImages, error }: ProductImageFieldPro
       return;
     }
 
+    const room = Math.max(0, MAX_GALLERY_IMAGES - images.length);
+    const accepted = files.slice(0, room);
+    const unsupported = accepted.find((file) => !ALLOWED_TYPES.has(file.type));
+
+    if (unsupported) {
+      setUploadError(`${unsupported.name} is not a JPEG, PNG, WebP or AVIF image.`);
+      return;
+    }
+
+    const oversized = accepted.find((file) => file.size > MAX_CROP_SOURCE_SIZE_IN_BYTES);
+
+    if (oversized) {
+      setUploadError(`${oversized.name} is larger than ${MAX_CROP_SOURCE_SIZE_IN_MEGABYTES} MB.`);
+      return;
+    }
+
     setUploadError(null);
+    // One dialog per file: the queue advances as each crop is uploaded.
+    setQueue(
+      accepted.map((file, index) => {
+        const previewUrl = URL.createObjectURL(file);
+        objectUrlsRef.current.push(previewUrl);
+
+        return { id: `${file.name}-${file.size}-${index}`, file, previewUrl };
+      }),
+    );
+  }
+
+  async function handleCropConfirm(cropped: File) {
+    const [current, ...rest] = queue;
+
+    if (!current) {
+      return;
+    }
+
     setIsUploading(true);
+    setUploadError(null);
 
     try {
-      const room = MAX_GALLERY_IMAGES - images.length;
-      const uploaded: string[] = [];
+      const blob = await upload(cropped.name, cropped, {
+        access: "public",
+        handleUploadUrl: "/api/admin/uploads",
+        contentType: cropped.type,
+      });
 
-      for (const file of files.slice(0, room)) {
-        if (file.size > MAX_IMAGE_SIZE_IN_BYTES) {
-          throw new Error(`${file.name} is larger than ${MAX_IMAGE_SIZE_IN_MEGABYTES} MB.`);
-        }
-
-        const blob = await upload(file.name, file, {
-          access: "public",
-          handleUploadUrl: "/api/admin/uploads",
-          contentType: file.type,
-        });
-
-        uploaded.push(blob.url);
-      }
-
-      setImages((current) => [...current, ...uploaded].slice(0, MAX_GALLERY_IMAGES));
+      setImages((values) => [...values, blob.url].slice(0, MAX_GALLERY_IMAGES));
+      releasePreviews([current]);
+      setQueue(rest);
     } catch (cause) {
       setUploadError(cause instanceof Error ? cause.message : "Upload failed. Try again.");
+      releasePreviews(queue);
+      setQueue([]);
     } finally {
       setIsUploading(false);
     }
+  }
+
+  function releasePreviews(items: QueuedFile[]) {
+    for (const item of items) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+  }
+
+  function handleCropCancel() {
+    releasePreviews(queue);
+    setQueue([]);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    setImages((current) => {
+      const from = current.indexOf(String(active.id));
+      const to = current.indexOf(String(over.id));
+
+      return from === -1 || to === -1 ? current : arrayMove(current, from, to);
+    });
+  }
+
+  function makeThumbnail(url: string) {
+    setImages((current) => {
+      const index = current.indexOf(url);
+
+      return index <= 0 ? current : arrayMove(current, index, 0);
+    });
   }
 
   function removeImage(url: string) {
@@ -84,36 +195,22 @@ export function ProductImageField({ initialImages, error }: ProductImageFieldPro
       ))}
 
       {images.length > 0 ? (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {images.map((url, index) => (
-            <li key={url} className="flex flex-col gap-2 rounded-lg border border-border p-2">
-              <div className="relative aspect-square overflow-hidden rounded-md bg-muted">
-                <Image
-                  src={url}
-                  alt=""
-                  fill
-                  sizes="160px"
-                  className="object-cover"
-                  unoptimized={isRemoteUrl(url)}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={images} strategy={rectSortingStrategy}>
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              {images.map((url, index) => (
+                <SortableImageCard
+                  key={url}
+                  url={url}
+                  index={index}
+                  isBusy={isBusy}
+                  onRemove={removeImage}
+                  onMakeThumbnail={makeThumbnail}
                 />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {index === 0 ? "Thumbnail" : `Image ${index + 1}`}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeImage(url)}
-                  aria-label={`Remove image ${index + 1}`}
-                >
-                  Remove
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       ) : (
         <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           No images yet. The first image becomes the catalogue thumbnail.
@@ -125,7 +222,7 @@ export function ProductImageField({ initialImages, error }: ProductImageFieldPro
           type="file"
           accept={IMAGE_ACCEPT_ATTRIBUTE}
           multiple
-          disabled={isFull || isUploading}
+          disabled={isFull || isBusy}
           onChange={handleFiles}
           aria-invalid={Boolean(error) || Boolean(uploadError)}
           className="h-auto cursor-pointer py-2 file:mr-3"
@@ -133,7 +230,7 @@ export function ProductImageField({ initialImages, error }: ProductImageFieldPro
         <p className="text-xs text-muted-foreground">
           {isFull
             ? `Gallery full (${MAX_GALLERY_IMAGES} images). Remove one to add another.`
-            : `Up to ${MAX_GALLERY_IMAGES} images, ${MAX_IMAGE_SIZE_IN_MEGABYTES} MB each.`}
+            : `Up to ${MAX_GALLERY_IMAGES} images. Each file is cropped in the browser before it uploads, so the sent image stays under ${MAX_IMAGE_SIZE_IN_MEGABYTES} MB.`}
           {isUploading ? " Uploading…" : ""}
         </p>
         {uploadError ? (
@@ -147,6 +244,18 @@ export function ProductImageField({ initialImages, error }: ProductImageFieldPro
           </p>
         ) : null}
       </div>
+
+      {activeFile ? (
+        <ImageCropDialog
+          key={activeFile.id}
+          file={activeFile.file}
+          previewUrl={activeFile.previewUrl}
+          position={{ current: images.length + 1, total: images.length + queue.length }}
+          isUploading={isUploading}
+          onCancel={handleCropCancel}
+          onConfirm={handleCropConfirm}
+        />
+      ) : null}
     </div>
   );
 }

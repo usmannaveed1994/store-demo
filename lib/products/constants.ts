@@ -9,6 +9,22 @@ export const MAX_GALLERY_IMAGES = 5;
 /** Largest file the upload route issues a token for, in bytes. */
 export const MAX_IMAGE_SIZE_IN_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Longest edge of a cropped upload, in pixels.
+ *
+ * The cropper re-encodes whatever the admin framed at this size, so a phone
+ * photo never lands in Blob storage at 4000px and the canvas stays bounded.
+ */
+export const MAX_CROPPED_IMAGE_DIMENSION = 1600;
+
+/**
+ * Largest source file the cropper will open.
+ *
+ * Deliberately looser than `MAX_IMAGE_SIZE_IN_BYTES`: only the crop result is
+ * uploaded, so the upload limit applies to the encoded output instead.
+ */
+export const MAX_CROP_SOURCE_SIZE_IN_BYTES = 25 * 1024 * 1024;
+
 /** Formats the upload route accepts. */
 export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"] as const;
 
