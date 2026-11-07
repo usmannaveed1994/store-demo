@@ -114,6 +114,29 @@ export async function listActiveProducts(options: Omit<ProductFilters, "status">
   return listProducts({ ...options, status: "active" });
 }
 
+/** The two columns a sitemap entry needs: the URL key and its `lastmod`. */
+export type ProductSitemapEntry = {
+  slug: string;
+  updatedAt: Date;
+};
+
+/**
+ * Every URL in the public catalogue, without paging.
+ *
+ * Only `slug` and `updated_at` are read — a sitemap never needs prices, photos
+ * or copy — and the publish rule is the same one the storefront applies, so a
+ * `draft`, `archived` or soft-deleted row can never leak into `sitemap.xml`.
+ * The protocol caps one file at 50,000 URLs; split it with `generateSitemaps`
+ * if the catalogue ever gets that big.
+ */
+export async function listActiveProductSitemapEntries(): Promise<ProductSitemapEntry[]> {
+  return getDb()
+    .select({ slug: products.slug, updatedAt: products.updatedAt })
+    .from(products)
+    .where(and(...buildReadConditions({ status: "active" })))
+    .orderBy(desc(products.updatedAt), desc(products.id));
+}
+
 /** Homepage / collection curation: published products flagged as featured. */
 export async function listFeaturedProducts(
   options: Omit<ProductFilters, "status" | "featured"> = {},

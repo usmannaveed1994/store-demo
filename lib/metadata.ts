@@ -52,8 +52,11 @@ export type PageMetadataInput = {
  * Absolute origin that relative metadata URLs are resolved against.
  *
  * `APP_URL` wins when set; Vercel deployments fall back to the injected host.
+ * `app/sitemap.ts` resolves the same origin for the absolute `<loc>` URLs it
+ * must emit, so canonicals and sitemap entries can never point at different
+ * hosts.
  */
-function resolveSiteUrl(): URL {
+export function resolveSiteUrl(): URL {
   const configured = process.env.APP_URL?.trim();
 
   if (configured) {
