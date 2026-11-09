@@ -5,7 +5,10 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-const LINKS = [{ href: "/admin/products", label: "Products" }] as const;
+const LINKS = [
+  { href: "/admin/orders", label: "Orders" },
+  { href: "/admin/products", label: "Products" },
+] as const;
 
 /** Sidebar links, with the current section marked for assistive technology too. */
 export function AdminNav() {

@@ -106,6 +106,7 @@ host. Shipping is a flat rate in `lib/checkout/config.ts` (`0` = free).
 
 ```
 app/
+  admin/                       Back-office: order list, order detail, product CRUD
   api/products/route.ts        Public catalogue feed (GET /api/products)
   api/products/[slug]/route.ts One product (GET /api/products/[slug])
   api/cart/route.ts            Read or empty the caller's cart (GET, DELETE)
@@ -128,12 +129,15 @@ components/buy-button.tsx      Shared "Buy now" button (inert, sold-out aware)
 components/add-to-cart-button.tsx  Shared "Add to cart" button (React Query mutation)
 components/cart-indicator.tsx  Header cart link with the live item count
 components/site-header.tsx     Sticky site header (wordmark + cart + account controls)
+lib/admin/
+  authorization.ts             `requireAdmin()` guard for admin pages and actions
+  search-params.ts             Safe reads of the admin list query string
 lib/db/
   index.ts                     Lazily created Drizzle client (pg Pool)
   schema/users.ts              `users` table, enum and inferred types
   schema/products.ts           `products` table, enum and inferred types
   schema/carts.ts              `carts` + `cart_items`, `cart_status` enum
-  schema/orders.ts             `orders` + `order_items`, `order_status` enum
+  schema/orders.ts             `orders` + `order_items`, payment and fulfilment enums
   queries/users.ts             Typed queries + the Clerk upsert
   queries/products.ts          Typed catalogue queries (read/create/update/delete)
   queries/carts.ts             Cart reads and mutations, incl. the guest merge
@@ -155,6 +159,9 @@ lib/checkout/
   hooks.ts                     React Query mutation that redirects to Stripe
 lib/payments/stripe.ts         Lazily created, globally cached Stripe client
 lib/money.ts                   Cents <-> `numeric(10, 2)` string helpers
+lib/orders/
+  presentation.ts              Status labels + badge variants shared by the admin pages
+  validation.ts                Fulfilment/payment options, courier field parsing
 lib/images.ts                  Image URL helpers (remote vs optimisable)
 lib/products/
   dto.ts                       JSON wire types for the catalogue API
@@ -244,6 +251,11 @@ One row per checkout attempt, created before Stripe is called. Contact and
 address details are copied onto the row, and `status` only moves forward through
 the guarded updates in `lib/db/queries/orders.ts`.
 
+Two independent lifecycles live on the row: `status` (payment, written by Stripe
+and corrected by an admin) and `fulfillment_status` (packing and shipping, driven
+from `/admin/orders`). A refund after shipping must not undo a delivery, so they
+are never derived from one another.
+
 | Column                        | Notes                                            |
 | ----------------------------- | ------------------------------------------------ |
 | `id`                          | UUID primary key (`gen_random_uuid()`)            |
@@ -251,6 +263,8 @@ the guarded updates in `lib/db/queries/orders.ts`.
 | `user_id`                     | FK to `users`, `NULL` for a guest checkout        |
 | `cart_id`                     | FK to `carts`, kept for conversion bookkeeping    |
 | `status`                      | `order_status`, defaults to `pending`             |
+| `fulfillment_status`          | `order_fulfillment_status`, defaults to `pending`  |
+| `courier` / `tracking_number` | Set together from the admin detail page            |
 | `currency`                    | ISO-4217 code taken from the cart                 |
 | `subtotal` / `shipping_total` / `total` | Exact decimals, computed server-side    |
 | `customer_email` / `customer_name` / `customer_phone` | Contact snapshot           |
@@ -258,6 +272,7 @@ the guarded updates in `lib/db/queries/orders.ts`.
 | `stripe_checkout_session_id`  | Unique when set; the webhook's lookup key         |
 | `stripe_payment_intent_id`    | Set on fulfilment                                 |
 | `paid_at`                     | Set when the order transitions to `paid`          |
+| `shipped_at` / `delivered_at` | Stamped the first time each stage is reached      |
 | `created_at` / `updated_at`   | `updated_at` is maintained by Drizzle             |
 
 ### `order_items`
@@ -274,6 +289,7 @@ stock when the order is paid.
 | `product_title` / `product_slug` | Copied from the cart at checkout time            |
 | `unit_price` / `line_total`   | Exact decimals; `line_total = unit_price × quantity` |
 | `quantity`                    | Units, checked `> 0`                                |
+| `stock_deducted`              | `true` while this line's units are out of stock     |
 | `currency`                    | ISO-4217 code for this line                         |
 | `created_at`                  | Orders the lines on the confirmation page           |
 
@@ -563,7 +579,9 @@ order keeps the address snapshot and no account.
    That `RETURNING` is the lock. Only the call that actually moved the row
    decrements stock (`stock >= quantity`, so it can never go negative) and clears
    the cart (`cart_items` deleted, cart set to `converted`). A replayed webhook
-   finds nothing to update and changes nothing.
+   finds nothing to update and changes nothing. The lines that did move are
+   marked `stock_deducted` — the flag an admin cancellation restocks from — and
+   fulfilment moves `pending → confirmed` in the same transaction.
 
 Statuses: `pending` → `paid`; `cancelled` when the shopper backs out, `expired`
 when Stripe times the session out, `failed` when a delayed payment fails or the
@@ -605,6 +623,38 @@ for a handler failure, which is what makes Stripe retry.
 3. Back out instead and you land on `/checkout/cancel`; the cart is untouched.
 4. Replay the webhook (`stripe events resend <event_id>`): the order stays `paid`,
    stock and cart do not change.
+
+## Admin
+
+`/admin` redirects to `/admin/orders`. Every admin page and every admin server
+action calls `requireAdmin()` itself: the layout guard decides who sees the shell,
+not who may read the data, because layouts and pages render concurrently and
+actions are reachable by direct POST.
+
+| Route                | What it does                                                          |
+| -------------------- | --------------------------------------------------------------------- |
+| `/admin/orders`      | List with search (number, email, name) and payment/fulfilment filters   |
+| `/admin/orders/[id]` | Items, customer, addresses, payment, fulfilment and courier forms       |
+| `/admin/products`    | Catalogue list, create/edit form, publish toggle                       |
+
+Fulfilment and payment are separate controls on the detail page:
+
+- **Fulfilment** moves `pending → confirmed → shipped → delivered`. A successful
+  payment sets `confirmed` by itself, and `shipped` / `delivered` stamp their
+  timestamps the first time each stage is reached.
+- **Cancel** is terminal and offers an optional restock, ticked by default. It
+  returns only the lines still marked `stock_deducted`, so submitting twice
+  cannot inflate stock and a line paid for stock that had already run out is
+  never credited. Untick it when the goods came back damaged.
+- **Payment** only offers `pending`, `paid` and `refunded` — the states an admin
+  can vouch for. The outcomes Stripe reports (`failed`, `expired`, `cancelled`)
+  stay read-only, and a manual `paid` keeps an existing `paid_at`.
+- **Courier** and tracking number are saved together or cleared together, so no
+  row ever carries half a tracking link.
+
+The filters are plain `GET` forms, pagination fetches `PAGE_SIZE + 1` rows to
+detect a next page without a count query, and nothing on these pages needs client
+JavaScript except the courier form's `useActionState`.
 
 ## Auth notes
 

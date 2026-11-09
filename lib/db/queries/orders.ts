@@ -1,11 +1,11 @@
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 
 import type { CartDto } from "@/lib/cart/dto";
 import type { ShippingDetails } from "@/lib/checkout/dto";
 import { getCheckoutTotals } from "@/lib/checkout/pricing";
 import { getDb } from "@/lib/db";
 import { cartItems, carts, orderItems, orders, products } from "@/lib/db/schema";
-import type { Order, OrderItem, OrderStatus } from "@/lib/db/schema";
+import type { Order, OrderFulfillmentStatus, OrderItem, OrderStatus } from "@/lib/db/schema";
 import { fromCents, toCents } from "@/lib/money";
 
 /** An order together with its immutable line snapshots. */
@@ -140,6 +140,15 @@ export async function failPendingOrder(orderId: string): Promise<void> {
     .where(and(eq(orders.id, orderId), eq(orders.status, "pending")));
 }
 
+/** The line snapshots of one order, oldest first. */
+async function listOrderItems(orderId: string): Promise<OrderItem[]> {
+  return getDb()
+    .select()
+    .from(orderItems)
+    .where(eq(orderItems.orderId, orderId))
+    .orderBy(asc(orderItems.createdAt), asc(orderItems.id));
+}
+
 export async function findOrderByCheckoutSessionId(
   sessionId: string,
 ): Promise<OrderWithItems | null> {
@@ -153,13 +162,83 @@ export async function findOrderByCheckoutSessionId(
     return null;
   }
 
-  const items = await getDb()
-    .select()
-    .from(orderItems)
-    .where(eq(orderItems.orderId, order.id))
-    .orderBy(asc(orderItems.createdAt), asc(orderItems.id));
+  return { order, items: await listOrderItems(order.id) };
+}
 
-  return { order, items };
+export async function getOrderById(id: string): Promise<OrderWithItems | null> {
+  const [order] = await getDb().select().from(orders).where(eq(orders.id, id)).limit(1);
+
+  if (!order) {
+    return null;
+  }
+
+  return { order, items: await listOrderItems(order.id) };
+}
+
+/** Pagination and filtering for the admin order list. Every field is optional. */
+export type OrderFilters = {
+  /** Fulfilment stage, as set by the admin. */
+  fulfillment?: OrderFulfillmentStatus;
+  /** Payment state; only `pending`, `paid` and `refunded` are set by hand. */
+  payment?: OrderStatus;
+  /** Case-insensitive substring matched against the order number, email and name. */
+  search?: string;
+  limit?: number;
+  offset?: number;
+};
+
+const DEFAULT_LIMIT = 20;
+
+/** `%`, `_` and `\` are LIKE metacharacters, so a search for `50%` must not become a wildcard. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function buildOrderConditions(filters: Pick<OrderFilters, "fulfillment" | "payment" | "search">) {
+  const conditions: SQL[] = [];
+
+  if (filters.fulfillment) {
+    conditions.push(eq(orders.fulfillmentStatus, filters.fulfillment));
+  }
+
+  if (filters.payment) {
+    conditions.push(eq(orders.status, filters.payment));
+  }
+
+  const search = filters.search?.trim();
+
+  if (search) {
+    const pattern = `%${escapeLikePattern(search)}%`;
+    const match = or(
+      ilike(orders.orderNumber, pattern),
+      ilike(orders.customerEmail, pattern),
+      ilike(orders.customerName, pattern),
+    );
+
+    if (match) {
+      conditions.push(match);
+    }
+  }
+
+  return conditions;
+}
+
+/**
+ * Newest first, then a stable tiebreaker.
+ *
+ * Orders created in one transaction share `created_at`, and offset paging needs
+ * a repeatable order — otherwise page two can repeat or skip rows from page one.
+ */
+export async function listOrders(filters: OrderFilters = {}): Promise<Order[]> {
+  const { limit = DEFAULT_LIMIT, offset = 0 } = filters;
+
+  return getDb()
+    .select()
+    .from(orders)
+    .where(and(...buildOrderConditions(filters)))
+    .orderBy(desc(orders.createdAt), desc(orders.id))
+    .limit(limit)
+    .offset(offset);
 }
 
 export type MarkOrderPaidResult = {
@@ -204,6 +283,13 @@ export async function markOrderPaid({
       return false;
     }
 
+    // Confirmation is the admin's first step, but a manual cancel recorded
+    // before the payment landed must survive it, so only `pending` advances.
+    await tx
+      .update(orders)
+      .set({ fulfillmentStatus: "confirmed" })
+      .where(and(eq(orders.id, paid.id), eq(orders.fulfillmentStatus, "pending")));
+
     const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, paid.id));
 
     for (const item of items) {
@@ -219,10 +305,15 @@ export async function markOrderPaid({
 
       if (updated.length === 0) {
         // Paid for stock that is gone — record it and leave the count at zero.
+        // `stock_deducted` stays false, so a later cancellation cannot credit
+        // back units this order never took.
         console.warn(
           `[orders] Order ${paid.id} oversold product ${item.productId} (quantity ${item.quantity}).`,
         );
+        continue;
       }
+
+      await tx.update(orderItems).set({ stockDeducted: true }).where(eq(orderItems.id, item.id));
     }
 
     if (paid.cartId) {
@@ -255,4 +346,120 @@ export async function markOrderClosed({
     .update(orders)
     .set({ status })
     .where(and(eq(orders.stripeCheckoutSessionId, sessionId), eq(orders.status, "pending")));
+}
+
+export type FulfillmentUpdate = {
+  fulfillmentStatus: OrderFulfillmentStatus;
+  /** Put the deducted units back on sale; only acted on when cancelling. */
+  restock?: boolean;
+};
+
+/**
+ * Moves an order through the stages an admin controls.
+ *
+ * `cancelled` is terminal: the stock decision taken at that moment cannot be
+ * replayed by moving the order back, so a cancelled order is left untouched.
+ * Restocking reads `order_items.stock_deducted`, which makes the reversal safe
+ * to submit twice and keeps an oversold line (paid for stock that was never
+ * taken) out of the count. Everything happens in one transaction, so a status
+ * change can never be stored without the restock it promised.
+ */
+export async function updateOrderFulfillment(
+  orderId: string,
+  { fulfillmentStatus, restock = false }: FulfillmentUpdate,
+): Promise<Order | undefined> {
+  return getDb().transaction(async (tx) => {
+    const [current] = await tx
+      .select({
+        fulfillmentStatus: orders.fulfillmentStatus,
+        shippedAt: orders.shippedAt,
+        deliveredAt: orders.deliveredAt,
+      })
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (
+      !current ||
+      (current.fulfillmentStatus === "cancelled" && fulfillmentStatus !== "cancelled")
+    ) {
+      return undefined;
+    }
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(orders)
+      .set({
+        fulfillmentStatus,
+        // Stamped once, so re-saving the same stage keeps the original date.
+        ...(fulfillmentStatus === "shipped" && !current.shippedAt ? { shippedAt: now } : {}),
+        ...(fulfillmentStatus === "delivered" && !current.deliveredAt ? { deliveredAt: now } : {}),
+      })
+      .where(eq(orders.id, orderId))
+      .returning();
+
+    if (!updated) {
+      return undefined;
+    }
+
+    if (fulfillmentStatus === "cancelled" && restock) {
+      const deducted = await tx
+        .select({
+          id: orderItems.id,
+          productId: orderItems.productId,
+          quantity: orderItems.quantity,
+        })
+        .from(orderItems)
+        .where(and(eq(orderItems.orderId, orderId), eq(orderItems.stockDeducted, true)));
+
+      for (const line of deducted) {
+        if (line.productId) {
+          await tx
+            .update(products)
+            .set({ stock: sql`${products.stock} + ${line.quantity}` })
+            .where(eq(products.id, line.productId));
+        }
+
+        // Cleared even when the product is gone, so the reversal cannot replay.
+        await tx.update(orderItems).set({ stockDeducted: false }).where(eq(orderItems.id, line.id));
+      }
+    }
+
+    return updated;
+  });
+}
+
+/** Courier details, editable until the order is cancelled. */
+export async function updateOrderTracking(
+  orderId: string,
+  { courier, trackingNumber }: { courier: string | null; trackingNumber: string | null },
+): Promise<Order | undefined> {
+  const [order] = await getDb()
+    .update(orders)
+    .set({ courier, trackingNumber })
+    .where(and(eq(orders.id, orderId), ne(orders.fulfillmentStatus, "cancelled")))
+    .returning();
+
+  return order;
+}
+
+/**
+ * Sets the payment state by hand — a bank transfer that arrived, a refund
+ * issued elsewhere. Stripe keeps writing the same column from its webhooks.
+ */
+export async function updateOrderPaymentStatus(
+  orderId: string,
+  status: OrderStatus,
+): Promise<Order | undefined> {
+  const [order] = await getDb()
+    .update(orders)
+    .set({
+      status,
+      // Never rewrite the original timestamp; a manual "paid" only fills a gap.
+      ...(status === "paid" ? { paidAt: sql`coalesce(${orders.paidAt}, now())` } : {}),
+    })
+    .where(eq(orders.id, orderId))
+    .returning();
+
+  return order;
 }
