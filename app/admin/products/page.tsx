@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   Table,
   TableBody,
@@ -14,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireAdmin } from "@/lib/admin/authorization";
+import { readPage, readParam } from "@/lib/admin/search-params";
 import { listProducts } from "@/lib/db/queries/products";
 import type { ProductStatus } from "@/lib/db/schema";
 import { isRemoteUrl } from "@/lib/images";
@@ -43,22 +45,8 @@ type ProductsPageProps = {
 };
 
 /** `searchParams` values arrive as `string | string[]`; the UI only ever needs the first. */
-function readParam(value: string | string[] | undefined): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  return Array.isArray(value) ? (value[0] ?? "") : "";
-}
-
 function readStatus(value: string): ProductStatus | undefined {
   return STATUS_VALUES.has(value) ? (value as ProductStatus) : undefined;
-}
-
-function readPage(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 }
 
 /** Current filters, carried across pagination. */
@@ -129,19 +117,14 @@ export default async function AdminProductsPage({ searchParams }: ProductsPagePr
         <label htmlFor="status" className="sr-only">
           Filter by status
         </label>
-        <select
-          id="status"
-          name="status"
-          defaultValue={status ?? ""}
-          className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-        >
+        <NativeSelect id="status" name="status" defaultValue={status ?? ""} className="h-9 w-auto">
           <option value="">All statuses</option>
           {PRODUCT_STATUS_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
 
         <Button type="submit" variant="secondary">
           Filter

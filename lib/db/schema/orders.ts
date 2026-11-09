@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   integer,
@@ -23,6 +24,9 @@ import { users } from "./users";
  * this table as `failed`, because Stripe keeps the hosted session open. The
  * error states we do record are an abandoned session (`cancelled`), one that
  * timed out (`expired`) and a delayed payment method that failed later.
+ *
+ * An admin may also set `pending`, `paid` or `refunded` by hand, for money that
+ * arrives or leaves outside the hosted session.
  */
 export const orderStatusEnum = pgEnum("order_status", [
   "pending",
@@ -31,6 +35,22 @@ export const orderStatusEnum = pgEnum("order_status", [
   "cancelled",
   "expired",
   "refunded",
+]);
+
+/**
+ * Fulfilment lifecycle, driven by the admin dashboard.
+ *
+ * Deliberately separate from `order_status`: money can be refunded after an
+ * order shipped, and an unpaid order can be cancelled before it is packed.
+ * `cancelled` is terminal — the stock decision taken at that moment is not
+ * replayed if the order is moved back afterwards.
+ */
+export const orderFulfillmentStatusEnum = pgEnum("order_fulfillment_status", [
+  "pending",
+  "confirmed",
+  "shipped",
+  "delivered",
+  "cancelled",
 ]);
 
 /**
@@ -52,6 +72,12 @@ export const orders = pgTable(
     /** Kept for conversion bookkeeping only; the cart row itself is never deleted. */
     cartId: uuid("cart_id").references(() => carts.id, { onDelete: "set null" }),
     status: orderStatusEnum("status").notNull().default("pending"),
+    fulfillmentStatus: orderFulfillmentStatusEnum("fulfillment_status")
+      .notNull()
+      .default("pending"),
+    /** Courier name and its tracking number: either both set, or both `null`. */
+    courier: text("courier"),
+    trackingNumber: text("tracking_number"),
     /** ISO-4217 code, taken from the cart's products. */
     currency: text("currency").notNull(),
     subtotal: numeric("subtotal", { precision: 10, scale: 2 }).notNull(),
@@ -71,6 +97,9 @@ export const orders = pgTable(
     stripeCheckoutSessionId: text("stripe_checkout_session_id"),
     stripePaymentIntentId: text("stripe_payment_intent_id"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
+    /** Stamped once, the first time the order reaches the matching stage. */
+    shippedAt: timestamp("shipped_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -82,6 +111,7 @@ export const orders = pgTable(
     uniqueIndex("orders_stripe_checkout_session_id_key").on(table.stripeCheckoutSessionId),
     index("orders_user_id_idx").on(table.userId),
     index("orders_status_idx").on(table.status),
+    index("orders_fulfillment_status_idx").on(table.fulfillmentStatus),
     check("orders_total_check", sql`${table.total} >= 0`),
   ],
 );
@@ -107,6 +137,13 @@ export const orderItems = pgTable(
     quantity: integer("quantity").notNull(),
     lineTotal: numeric("line_total", { precision: 10, scale: 2 }).notNull(),
     currency: text("currency").notNull(),
+    /**
+     * `true` while this line's units are subtracted from the product's stock.
+     * Set on payment and cleared when a cancellation returns them, so the
+     * reversal runs at most once and an oversold line (paid for stock that was
+     * never deducted) is never credited back.
+     */
+    stockDeducted: boolean("stock_deducted").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -120,3 +157,4 @@ export type NewOrder = typeof orders.$inferInsert;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type NewOrderItem = typeof orderItems.$inferInsert;
 export type OrderStatus = (typeof orderStatusEnum.enumValues)[number];
+export type OrderFulfillmentStatus = (typeof orderFulfillmentStatusEnum.enumValues)[number];
