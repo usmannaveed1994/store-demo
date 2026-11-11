@@ -8,11 +8,18 @@ import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
 import { useCartQuery } from "@/lib/cart/hooks";
 import { CheckoutRequestError } from "@/lib/checkout/api";
-import type { CheckoutFieldErrors, ShippingDetails } from "@/lib/checkout/dto";
+import { DEFAULT_SHIPPING_COUNTRY, ENABLE_STRIPE, SHIPPING_COUNTRIES } from "@/lib/checkout/config";
+import type {
+  CheckoutFieldErrors,
+  CheckoutRequest,
+  ManualPaymentMethod,
+  ShippingDetails,
+} from "@/lib/checkout/dto";
 import { useStartCheckout } from "@/lib/checkout/hooks";
-import { SHIPPING_COUNTRIES } from "@/lib/checkout/validation";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/checkout/validation";
 
 import { SelectField, TextField } from "./checkout-fields";
+import { PaymentMethodSection } from "./payment-method";
 
 type FormValues = {
   email: string;
@@ -35,13 +42,26 @@ const EMPTY_FORM: FormValues = {
   city: "",
   state: "",
   postalCode: "",
-  country: "",
+  country: DEFAULT_SHIPPING_COUNTRY,
 };
 
 const COUNTRY_OPTIONS = SHIPPING_COUNTRIES.map((country) => ({
   value: country.code,
   label: country.label,
 }));
+
+/** Button copy follows the active flow, so the promise matches what happens. */
+function submitLabelFor(isBusy: boolean): string {
+  if (ENABLE_STRIPE) {
+    return isBusy ? "Redirecting to Stripe…" : "Continue to payment";
+  }
+
+  return isBusy ? "Placing order…" : "Place order";
+}
+
+const PAYMENT_HINT = ENABLE_STRIPE
+  ? "Card details are entered on Stripe's secure page. Nothing is charged until you confirm there."
+  : "Your order number appears on the next screen, with the payment details and a WhatsApp link.";
 
 /** Empty optional inputs become `null`, which is what the API expects. */
 function toShippingDetails(values: FormValues): ShippingDetails {
@@ -73,6 +93,7 @@ export function CheckoutForm() {
   // Only fields the shopper has touched. Everything else falls back to Clerk, so
   // the form stays reactive to the user loading without an effect writing state.
   const [edited, setEdited] = useState<Partial<FormValues>>({});
+  const [paymentMethod, setPaymentMethod] = useState<ManualPaymentMethod>("advance");
 
   const values: FormValues = {
     ...EMPTY_FORM,
@@ -103,11 +124,38 @@ export function CheckoutForm() {
     };
   }
 
+  function selectPaymentMethod(next: ManualPaymentMethod) {
+    if (startCheckout.isError) {
+      startCheckout.reset();
+    }
+
+    setPaymentMethod(next);
+    setFieldErrors((current) => {
+      if (!current.paymentMethod) {
+        return current;
+      }
+
+      const nextErrors = { ...current };
+      delete nextErrors.paymentMethod;
+
+      return nextErrors;
+    });
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFieldErrors({});
 
-    startCheckout.mutate(toShippingDetails(values), {
+    // The radios can only be left unset by a client that skipped the UI; the
+    // check keeps an order nobody can collect payment for out of the database.
+    if (!PAYMENT_METHOD_OPTIONS.some((option) => option.value === paymentMethod)) {
+      setFieldErrors({ paymentMethod: "Choose a payment method." });
+      return;
+    }
+
+    const request: CheckoutRequest = { ...toShippingDetails(values), paymentMethod };
+
+    startCheckout.mutate(request, {
       onSuccess: () => {
         const cart = cartQuery.data;
 
@@ -116,6 +164,7 @@ export function CheckoutForm() {
             item_count: cart.itemCount,
             subtotal: cart.subtotal,
             currency: cart.currency,
+            payment_method: ENABLE_STRIPE ? "card" : paymentMethod,
           });
         }
       },
@@ -266,6 +315,15 @@ export function CheckoutForm() {
         </div>
       </fieldset>
 
+      {ENABLE_STRIPE ? null : (
+        <PaymentMethodSection
+          value={paymentMethod}
+          onChange={selectPaymentMethod}
+          error={fieldErrors.paymentMethod}
+          disabled={isBusy}
+        />
+      )}
+
       {generalError ? (
         <p
           role="alert"
@@ -277,12 +335,9 @@ export function CheckoutForm() {
 
       <div className="flex flex-col gap-3">
         <Button type="submit" size="lg" disabled={isBusy} className="h-12 text-base font-semibold">
-          {isBusy ? "Redirecting to Stripe…" : "Continue to payment"}
+          {submitLabelFor(isBusy)}
         </Button>
-        <p className="text-xs text-muted-foreground">
-          Card details are entered on Stripe&apos;s secure page. Nothing is charged until you
-          confirm there.
-        </p>
+        <p className="text-xs text-muted-foreground">{PAYMENT_HINT}</p>
       </div>
     </form>
   );

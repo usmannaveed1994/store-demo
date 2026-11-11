@@ -28,6 +28,14 @@ export function logCheckoutSessionCreationFailed(): void {
   });
 }
 
+export function logOrderPlaced(): void {
+  posthogLogLogger?.emit({
+    body: "order_placed",
+    severityNumber: SeverityNumber.INFO,
+    attributes: { route: "/api/checkout", stage: "manual_payment" },
+  });
+}
+
 export async function flushPosthogLogs(): Promise<void> {
   await posthogLogProvider?.forceFlush();
 }

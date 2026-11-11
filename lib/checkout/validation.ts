@@ -1,35 +1,12 @@
-import type { CheckoutFieldErrors, ShippingDetails } from "./dto";
+import { SHIPPING_COUNTRIES } from "./config";
+import type {
+  CheckoutFieldErrors,
+  CheckoutRequest,
+  ManualPaymentMethod,
+  ShippingDetails,
+} from "./dto";
 
-/**
- * Destinations the form offers.
- *
- * The same list feeds the `<select>` and the server validation, so a country can
- * never be offered to the shopper and then rejected by the API (or the other way
- * round). Extend this list, not the two call sites.
- */
-export const SHIPPING_COUNTRIES = [
-  { code: "US", label: "United States" },
-  { code: "CA", label: "Canada" },
-  { code: "GB", label: "United Kingdom" },
-  { code: "IE", label: "Ireland" },
-  { code: "AU", label: "Australia" },
-  { code: "NZ", label: "New Zealand" },
-  { code: "DE", label: "Germany" },
-  { code: "FR", label: "France" },
-  { code: "NL", label: "Netherlands" },
-  { code: "BE", label: "Belgium" },
-  { code: "ES", label: "Spain" },
-  { code: "IT", label: "Italy" },
-  { code: "PT", label: "Portugal" },
-  { code: "SE", label: "Sweden" },
-  { code: "DK", label: "Denmark" },
-  { code: "NO", label: "Norway" },
-  { code: "CH", label: "Switzerland" },
-  { code: "JP", label: "Japan" },
-  { code: "SG", label: "Singapore" },
-  { code: "AE", label: "United Arab Emirates" },
-] as const;
-
+/** Server-side mirror of the list the `<select>` renders. */
 const COUNTRY_CODES = new Set<string>(SHIPPING_COUNTRIES.map((country) => country.code));
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -149,5 +126,55 @@ export function parseShippingDetails(body: Record<string, unknown>): ShippingVal
       postalCode,
       country,
     },
+  };
+}
+
+/** Methods the manual flow offers, with the copy each radio card shows. */
+export const PAYMENT_METHOD_OPTIONS: readonly {
+  value: ManualPaymentMethod;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "advance",
+    label: "Advance Payment",
+    description: "Transfer the total to our SadaPay account before dispatch.",
+  },
+  {
+    value: "cod",
+    label: "Cash on Delivery (COD)",
+    description: "Pay our delivery partner in cash when the parcel arrives.",
+  },
+];
+
+const PAYMENT_METHODS = new Set<string>(PAYMENT_METHOD_OPTIONS.map((option) => option.value));
+
+export type CheckoutValidationResult =
+  | { ok: true; value: CheckoutRequest }
+  | { ok: false; fieldErrors: CheckoutFieldErrors };
+
+/**
+ * Validates a manual checkout body: the address plus a method the form offers.
+ *
+ * The method is re-checked here because the radio state only exists in the
+ * browser — a crafted request must not create an order whose payment nobody can
+ * collect.
+ */
+export function parseCheckoutRequest(body: Record<string, unknown>): CheckoutValidationResult {
+  const shipping = parseShippingDetails(body);
+  const fieldErrors: CheckoutFieldErrors = shipping.ok ? {} : { ...shipping.fieldErrors };
+  const paymentMethod = readField(body, "paymentMethod");
+
+  if (!PAYMENT_METHODS.has(paymentMethod)) {
+    fieldErrors.paymentMethod = "Choose a payment method.";
+  }
+
+  if (!shipping.ok || Object.keys(fieldErrors).length > 0) {
+    return { ok: false, fieldErrors };
+  }
+
+  return {
+    ok: true,
+    value: { ...shipping.value, paymentMethod: paymentMethod as ManualPaymentMethod },
   };
 }

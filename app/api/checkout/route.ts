@@ -1,6 +1,7 @@
 import { after, connection, NextResponse, type NextRequest } from "next/server";
 
 import { resolveCart } from "@/lib/cart/identity";
+import { ENABLE_STRIPE } from "@/lib/checkout/config";
 import type {
   CheckoutErrorResponse,
   CheckoutFieldErrors,
@@ -8,15 +9,16 @@ import type {
 } from "@/lib/checkout/dto";
 import { getCheckoutTotals } from "@/lib/checkout/pricing";
 import { createCheckoutSession, resolveAppUrl } from "@/lib/checkout/session";
-import { parseShippingDetails } from "@/lib/checkout/validation";
+import { parseCheckoutRequest } from "@/lib/checkout/validation";
 import { getCartDto } from "@/lib/db/queries/carts";
-import { createPendingOrder, failPendingOrder } from "@/lib/db/queries/orders";
+import { createPendingOrder, failPendingOrder, settleManualOrder } from "@/lib/db/queries/orders";
 import { readJsonBody } from "@/lib/http";
 import {
   flushPosthogLogs,
   logCheckoutRequestValidated,
   logCheckoutSessionCreated,
   logCheckoutSessionCreationFailed,
+  logOrderPlaced,
 } from "@/lib/posthog-logs";
 import { toCents } from "@/lib/money";
 
@@ -31,12 +33,16 @@ function errorJson(
 }
 
 /**
- * Turns the cart into an order and opens Stripe Checkout.
+ * Turns the cart into an order and hands the shopper to the payment step.
  *
  * Everything chargeable is re-derived here — products, prices, stock and
- * currency — because the request body only carries the shopper's address. The
- * response is a bare URL: the client redirects, and the confirmation is decided
- * later by the webhook (or the success page).
+ * currency — because the request body only carries the address and, in the
+ * manual flow, the chosen method.
+ *
+ * With `ENABLE_STRIPE` on, the response is Stripe's hosted URL and the
+ * confirmation is decided later by the webhook (or the success page). With it
+ * off, the order is settled immediately and the response points at the
+ * confirmation page keyed by the order number.
  */
 export async function POST(request: NextRequest): Promise<CheckoutApiResponse> {
   await connection();
@@ -47,10 +53,10 @@ export async function POST(request: NextRequest): Promise<CheckoutApiResponse> {
     return errorJson("Expected a JSON object body.", 400);
   }
 
-  const shipping = parseShippingDetails(body);
+  const checkout = parseCheckoutRequest(body);
 
-  if (!shipping.ok) {
-    return errorJson("Check your delivery details.", 400, shipping.fieldErrors);
+  if (!checkout.ok) {
+    return errorJson("Check your checkout details.", 400, checkout.fieldErrors);
   }
 
   const { cartId, userId } = await resolveCart({ create: false });
@@ -84,7 +90,23 @@ export async function POST(request: NextRequest): Promise<CheckoutApiResponse> {
   logCheckoutRequestValidated();
   after(flushPosthogLogs);
 
-  const order = await createPendingOrder({ cart, shipping: shipping.value, userId });
+  const order = await createPendingOrder({
+    cart,
+    shipping: checkout.value,
+    userId,
+    paymentMethod: ENABLE_STRIPE ? "card" : checkout.value.paymentMethod,
+  });
+
+  if (!ENABLE_STRIPE) {
+    // No webhook will ever settle this order, so stock and the cart are cleared
+    // now; the admin still confirms the payment by hand once the money arrives.
+    await settleManualOrder(order.order.id);
+    logOrderPlaced();
+
+    return NextResponse.json<CheckoutResponse>({
+      url: `/checkout/success?order=${encodeURIComponent(order.order.orderNumber)}`,
+    });
+  }
 
   try {
     const session = await createCheckoutSession({

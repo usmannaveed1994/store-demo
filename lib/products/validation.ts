@@ -1,6 +1,6 @@
 import type { ProductStatus } from "@/lib/db/schema";
 
-import { MAX_GALLERY_IMAGES } from "./constants";
+import { DEFAULT_CURRENCY, MAX_GALLERY_IMAGES } from "./constants";
 
 /** Statuses the admin form offers, in the order it lists them. */
 export const PRODUCT_STATUS_OPTIONS: readonly { value: ProductStatus; label: string }[] = [
@@ -128,7 +128,7 @@ export function parseProductForm(body: Record<string, unknown>): ProductValidati
   const description = readField(body, "description");
   const priceInput = readField(body, "price");
   const compareAtInput = readField(body, "compareAtPrice");
-  const currency = (readField(body, "currency") || "USD").toUpperCase();
+  const currency = (readField(body, "currency") || DEFAULT_CURRENCY).toUpperCase();
   const stockInput = readField(body, "stock");
   const status = readField(body, "status");
   const isFeatured = readField(body, "isFeatured") === "on";
@@ -175,7 +175,7 @@ export function parseProductForm(body: Record<string, unknown>): ProductValidati
   }
 
   if (!CURRENCY_PATTERN.test(currency)) {
-    fieldErrors.currency = "Use a three-letter currency code, e.g. USD.";
+    fieldErrors.currency = `Use a three-letter currency code, e.g. ${DEFAULT_CURRENCY}.`;
   }
 
   const stock = STOCK_PATTERN.test(stockInput) ? Number(stockInput) : Number.NaN;

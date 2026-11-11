@@ -1,4 +1,13 @@
 /**
+ * ISO-4217 code a product starts with.
+ *
+ * Shared by the `products.currency` column default, the admin form's initial
+ * value and the server-side fallback, so a new listing is never priced in a
+ * currency the store does not trade in.
+ */
+export const DEFAULT_CURRENCY = "PKR";
+
+/**
  * Images a single product gallery may hold.
  *
  * Shared by three places that must agree: the `product_images` position CHECK,

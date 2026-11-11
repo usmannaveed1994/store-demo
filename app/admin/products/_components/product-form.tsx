@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DEFAULT_CURRENCY } from "@/lib/products/constants";
 import {
   PRODUCT_STATUS_OPTIONS,
   type ProductFormState,
@@ -33,7 +34,7 @@ const DEFAULT_VALUES: Omit<ProductFormValues, "imageUrls"> = {
   description: null,
   price: "",
   compareAtPrice: null,
-  currency: "USD",
+  currency: DEFAULT_CURRENCY,
   stock: 0,
   status: "draft",
   isFeatured: false,

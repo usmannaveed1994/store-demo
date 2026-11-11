@@ -1,7 +1,7 @@
 "use client";
 
 import { useCartQuery } from "@/lib/cart/hooks";
-import { SHIPPING_FLAT_RATE_CENTS } from "@/lib/checkout/config";
+import { ENABLE_STRIPE, SHIPPING_FLAT_RATE_CENTS } from "@/lib/checkout/config";
 import { getCheckoutTotals } from "@/lib/checkout/pricing";
 import { formatPrice } from "@/lib/products/presentation";
 
@@ -85,7 +85,9 @@ export function CheckoutSummary() {
       </dl>
 
       <p className="mt-4 text-xs text-muted-foreground">
-        Taxes are included where applicable. Payment is taken on Stripe&apos;s secure page.
+        {ENABLE_STRIPE
+          ? "Taxes are included where applicable. Payment is taken on Stripe's secure page."
+          : "Taxes are included where applicable. Pay in advance to our SadaPay account, or in cash on delivery."}
       </p>
     </aside>
   );

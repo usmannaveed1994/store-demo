@@ -65,6 +65,18 @@ const user = await getCurrentDatabaseUser();
 if (!user) return null;
 ```
 
+### Payments
+
+Stripe is wired up but switched off: `ENABLE_STRIPE` in `lib/checkout/config.ts`
+is `false`, so checkout offers **advance payment** (a SadaPay transfer) or **cash
+on delivery** instead of a card form. The Stripe client, session helper, webhook
+and success page are untouched — flipping that constant back to `true` restores
+the hosted card checkout with no other change.
+
+Advance-payment details and the order-desk WhatsApp number live in
+`PAYMENT_DETAILS` in the same file; replace the bracketed placeholders before
+taking real orders.
+
 ### Stripe checkout
 
 Checkout uses **Stripe hosted Checkout**: this app creates an order and a
@@ -137,7 +149,7 @@ lib/db/
   schema/users.ts              `users` table, enum and inferred types
   schema/products.ts           `products` table, enum and inferred types
   schema/carts.ts              `carts` + `cart_items`, `cart_status` enum
-  schema/orders.ts             `orders` + `order_items`, payment and fulfilment enums
+  schema/orders.ts             `orders` + `order_items`, payment method/status and fulfilment enums
   queries/users.ts             Typed queries + the Clerk upsert
   queries/products.ts          Typed catalogue queries (read/create/update/delete)
   queries/carts.ts             Cart reads and mutations, incl. the guest merge
@@ -150,13 +162,13 @@ lib/cart/
   api.ts                       Browser fetchers + the `["cart"]` query key
   hooks.ts                     React Query hooks (query, mutations, auth resync)
 lib/checkout/
-  config.ts                    Flat shipping rate (0 = free)
+  config.ts                    Payment switch, store account details, countries, shipping rate
   pricing.ts                   Cart subtotal -> order / Stripe totals
-  validation.ts                Shipping form parsing + the delivery country list
+  validation.ts                Shipping + payment-method parsing, method options
   dto.ts                       Wire types for POST /api/checkout
   session.ts                   Server-only: Stripe session create/fulfil/cancel
   api.ts                       Browser fetcher for POST /api/checkout
-  hooks.ts                     React Query mutation that redirects to Stripe
+  hooks.ts                     React Query mutation that follows the returned URL
 lib/payments/stripe.ts         Lazily created, globally cached Stripe client
 lib/money.ts                   Cents <-> `numeric(10, 2)` string helpers
 lib/orders/
@@ -204,7 +216,7 @@ soft-deleted rows. Helpers live in `lib/db/queries/products.ts`
 | `title` / `description`       | Display name + optional long copy            |
 | `price`                       | Exact decimal selling price                  |
 | `compare_at_price`            | Optional "was" price for sale badges         |
-| `currency`                    | ISO-4217 code, defaults to `USD`             |
+| `currency`                    | ISO-4217 code, defaults to `PKR`             |
 | `sku`                         | Optional, unique when set                    |
 | `stock`                       | Units on hand, defaults to `0`               |
 | `status`                      | `draft` (default), `active` or `archived`    |
@@ -247,9 +259,10 @@ immediately and a client cannot pin a price it likes.
 
 ### `orders`
 
-One row per checkout attempt, created before Stripe is called. Contact and
-address details are copied onto the row, and `status` only moves forward through
-the guarded updates in `lib/db/queries/orders.ts`.
+One row per checkout attempt, written before the shopper is sent to pay — to
+Stripe, or to the transfer/COD instructions. Contact and address details are
+copied onto the row, and `status` only moves forward through the guarded updates
+in `lib/db/queries/orders.ts`.
 
 Two independent lifecycles live on the row: `status` (payment, written by Stripe
 and corrected by an admin) and `fulfillment_status` (packing and shipping, driven
@@ -259,10 +272,11 @@ are never derived from one another.
 | Column                        | Notes                                            |
 | ----------------------------- | ------------------------------------------------ |
 | `id`                          | UUID primary key (`gen_random_uuid()`)            |
-| `order_number`                | Unique, human-readable reference (`DC-…`)         |
+| `order_number`                | Unique, human-readable reference (`DC64-…`)       |
 | `user_id`                     | FK to `users`, `NULL` for a guest checkout        |
 | `cart_id`                     | FK to `carts`, kept for conversion bookkeeping    |
 | `status`                      | `order_status`, defaults to `pending`             |
+| `payment_method`              | `order_payment_method`: `card`, `advance` or `cod` |
 | `fulfillment_status`          | `order_fulfillment_status`, defaults to `pending`  |
 | `courier` / `tracking_number` | Set together from the admin detail page            |
 | `currency`                    | ISO-4217 code taken from the cart                 |
@@ -543,31 +557,43 @@ mis-click cannot delete a line — removal is its own button.
 
 ## Checkout
 
-`/checkout` collects delivery details, `POST /api/checkout` turns the cart into an
-order and opens **Stripe hosted Checkout**, and Stripe redirects back to
-`/checkout/success` or `/checkout/cancel`. Card details never reach this app.
-Checkout is open to guests: a signed-in order is linked to `users.id`, a guest
-order keeps the address snapshot and no account.
+`/checkout` collects the delivery details and the payment method,
+`POST /api/checkout` turns the cart into an order, and the browser lands on
+`/checkout/success`. Which payment step comes in between depends on
+`ENABLE_STRIPE` (see **Payments**): with it off — the default — the order is
+placed immediately and the confirmation page carries the transfer details and a
+WhatsApp hand-off, keyed by the order number; with it on, the shopper is sent to
+**Stripe hosted Checkout** and comes back to `/checkout/success` or
+`/checkout/cancel`. Card details never reach this app either way. Checkout is open
+to guests: a signed-in order is linked to `users.id`, a guest order keeps the
+address snapshot and no account.
 
 ### Flow
 
-1. **Validate the body.** `parseShippingDetails` (`lib/checkout/validation.ts`)
-   trims every field, caps lengths, checks the email and requires one of the
-   delivery countries the form offers. Prices, quantities and totals are never
-   accepted from the client.
+1. **Validate the body.** `parseCheckoutRequest` (`lib/checkout/validation.ts`),
+   which runs `parseShippingDetails` and then re-checks the payment method
+   against the two the form offers. It trims every field, caps lengths, checks
+   the email and requires one of the delivery countries the form offers. Prices,
+   quantities and totals are never accepted from the client.
 2. **Re-price from Postgres.** `getCartDto` re-reads the cart in the same request.
    Sold-out or unpublished lines block checkout with `409` instead of being
    silently dropped; a mixed-currency cart and an empty cart are refused too.
 3. **Write the order first.** `createPendingOrder` inserts `orders` (status
-   `pending`) plus `order_items` snapshots in one transaction. The `DC-…` number
-   is retried if the unique index rejects it. The row must exist before Stripe is
-   called, because both the session metadata and the idempotency key point at it.
-4. **Open the session.** `createCheckoutSession` (`lib/checkout/session.ts`) builds
-   `price_data` line items from the snapshots — the catalogue has no Stripe price
-   ids — sets `metadata.orderId`, `client_reference_id`, the return URLs and the
-   idempotency key `checkout-session:<orderId>`, then stores the session id on the
-   order. If Stripe fails, the order is marked `failed` and the API answers `502`.
-5. **Fulfil once.** The webhook and the success page both call `markOrderPaid`,
+   `pending`, `payment_method` = `card` under Stripe or the chosen method
+   otherwise) plus `order_items` snapshots in one transaction. The `DC64-…`
+   number is retried if the unique index rejects it.
+4. **Settle a manual order.** With Stripe off, `settleManualOrder` runs at once:
+   it decrements stock with the same `stock >= quantity` guard, marks the lines
+   `stock_deducted` and clears the cart, because no webhook will ever arrive to do
+   it. The API answers `{ "url": "/checkout/success?order=DC64-…" }`.
+5. **Open the session (Stripe only).** The row must already exist, because both
+   the session metadata and the idempotency key point at it.
+   `createCheckoutSession` (`lib/checkout/session.ts`) builds `price_data` line
+   items from the snapshots — the catalogue has no Stripe price ids — sets
+   `metadata.orderId`, `client_reference_id`, the return URLs and the idempotency
+   key `checkout-session:<orderId>`, then stores the session id on the order. If
+   Stripe fails, the order is marked `failed` and the API answers `502`.
+6. **Fulfil once.** The webhook and the success page both call `markOrderPaid`,
    which only flips `pending` / `failed` rows:
 
    ```sql
@@ -586,6 +612,9 @@ order keeps the address snapshot and no account.
 Statuses: `pending` → `paid`; `cancelled` when the shopper backs out, `expired`
 when Stripe times the session out, `failed` when a delayed payment fails or the
 session could never be created. `refunded` is reserved for a future refund flow.
+A manual order starts and stays `pending` until the money arrives, and an admin
+moves it to `paid` from `/admin/orders/[id]` — that column is the only difference
+between the two flows after the order exists.
 
 ### Endpoints
 
@@ -596,23 +625,28 @@ session could never be created. `refunded` is reserved for a future refund flow.
 
 `POST /api/checkout` answers `400` for a non-object body or field errors
 (`{ "error": "…", "fieldErrors": { "email": "…" } }`), `409` for an empty cart, an
-unavailable line or mixed currencies, and `502` when the Stripe session cannot be
-created. Webhook responses are `400` for a missing or invalid signature and `500`
-for a handler failure, which is what makes Stripe retry.
+unavailable line or mixed currencies, and — with `ENABLE_STRIPE` on — `502` when
+the Stripe session cannot be created. Webhook responses are `400` for a missing or
+invalid signature and `500` for a handler failure, which is what makes Stripe
+retry.
 
 ### Pages
 
 - `/checkout` is static. `CheckoutForm` and `CheckoutSummary` both read the shared
   `["cart"]` query, so the basket and the totals cannot disagree, and the form
-  prefills email/name from Clerk without being signed-in-only.
+  prefills email/name from Clerk without being signed-in-only. The country starts
+  on `DEFAULT_SHIPPING_COUNTRY` (`PK`) and the payment radios only render while
+  `ENABLE_STRIPE` is off.
 - `/checkout/success` and `/checkout/cancel` await `searchParams` inside a
-  `<Suspense>` boundary (Cache Components requires it). Neither trusts
-  `?session_id=` on its own: success re-reads the session from Stripe and fulfils
-  only a `paid` one, and cancel closes the order but redirects to success if the
-  session turns out to have been paid.
-- Once an order is paid the cart is already empty server-side;
-  `CartCacheReset` invalidates `["cart"]` so the header badge and `/cart` clear
-  without a reload.
+  `<Suspense>` boundary (Cache Components requires it). While Stripe is off,
+  success is looked up by `?order=` through `findOrderByNumber` — the number is
+  shareable on WhatsApp, so anyone holding it can read that order. With Stripe on,
+  neither page trusts `?session_id=` on its own: success re-reads the session from
+  Stripe and fulfils only a `paid` one, and cancel closes the order but redirects
+  to success if the session turns out to have been paid.
+- Once an order is placed the cart is already empty server-side — paid under
+  Stripe, settled at placement in the manual flow; `CartCacheReset` invalidates
+  `["cart"]` so the header badge and `/cart` clear without a reload.
 
 ### Trying it
 
