@@ -5,7 +5,13 @@ import type { ShippingDetails } from "@/lib/checkout/dto";
 import { getCheckoutTotals } from "@/lib/checkout/pricing";
 import { getDb } from "@/lib/db";
 import { cartItems, carts, orderItems, orders, products } from "@/lib/db/schema";
-import type { Order, OrderFulfillmentStatus, OrderItem, OrderStatus } from "@/lib/db/schema";
+import type {
+  Order,
+  OrderFulfillmentStatus,
+  OrderItem,
+  OrderPaymentMethod,
+  OrderStatus,
+} from "@/lib/db/schema";
 import { fromCents, toCents } from "@/lib/money";
 
 /** An order together with its immutable line snapshots. */
@@ -16,8 +22,20 @@ export type OrderWithItems = {
 
 const ORDER_NUMBER_ATTEMPTS = 3;
 
+/**
+ * `0/O` and `1/I` are left out: the number is read aloud on the phone and typed
+ * back into WhatsApp, so no character may be mistaken for another.
+ */
+const ORDER_NUMBER_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const ORDER_NUMBER_LENGTH = 6;
+
 function generateOrderNumber(): string {
-  return `DC-${crypto.randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+  const bytes = crypto.getRandomValues(new Uint8Array(ORDER_NUMBER_LENGTH));
+  const suffix = Array.from(bytes, (byte) =>
+    ORDER_NUMBER_ALPHABET.charAt(byte % ORDER_NUMBER_ALPHABET.length),
+  ).join("");
+
+  return `DC64-${suffix}`;
 }
 
 /** Postgres unique-violation code, i.e. an order number that was already taken. */
@@ -35,20 +53,24 @@ export type CreatePendingOrderInput = {
   shipping: ShippingDetails;
   /** The signed-in user, or `null` for a guest checkout. */
   userId: string | null;
+  /** How the shopper pays. The Stripe flow always stores `card`. */
+  paymentMethod: OrderPaymentMethod;
 };
 
 /**
- * Writes the order and its lines before Stripe is called.
+ * Writes the order and its lines.
  *
- * The row has to exist first: the hosted session carries `metadata.orderId`, and
- * the webhook can arrive before the browser is redirected back. Prices are
- * copied from the cart DTO that was read moments earlier, so the amount Stripe
- * charges is the amount stored here.
+ * With Stripe on, the row has to exist first: the hosted session carries
+ * `metadata.orderId`, and the webhook can arrive before the browser is
+ * redirected back. With it off, the row is all the manual flow needs. Prices are
+ * copied from the cart DTO that was read moments earlier, so the amount recorded
+ * is the amount the shopper was shown.
  */
 export async function createPendingOrder({
   cart,
   shipping,
   userId,
+  paymentMethod,
 }: CreatePendingOrderInput): Promise<OrderWithItems> {
   const lines = cart.lines.filter((line) => line.isAvailable);
   const currency = lines[0]?.currency;
@@ -69,6 +91,7 @@ export async function createPendingOrder({
             userId,
             cartId: cart.id,
             status: "pending",
+            paymentMethod,
             currency,
             subtotal: totals.subtotal,
             shippingTotal: totals.shipping,
@@ -156,6 +179,27 @@ export async function findOrderByCheckoutSessionId(
     .select()
     .from(orders)
     .where(eq(orders.stripeCheckoutSessionId, sessionId))
+    .limit(1);
+
+  if (!order) {
+    return null;
+  }
+
+  return { order, items: await listOrderItems(order.id) };
+}
+
+/**
+ * Looks an order up by the reference the shopper was given.
+ *
+ * `DC64-XXXXXX` is what the WhatsApp hand-off quotes, so the confirmation page
+ * can be reopened from that link alone. The number is random and unambiguous,
+ * but not secret: whoever knows it can read the order.
+ */
+export async function findOrderByNumber(orderNumber: string): Promise<OrderWithItems | null> {
+  const [order] = await getDb()
+    .select()
+    .from(orders)
+    .where(eq(orders.orderNumber, orderNumber.trim().toUpperCase()))
     .limit(1);
 
   if (!order) {
@@ -327,6 +371,61 @@ export async function markOrderPaid({
   const order = await findOrderByCheckoutSessionId(sessionId);
 
   return order ? { order, transitioned } : null;
+}
+
+/**
+ * Settles a manually paid order the moment it is placed.
+ *
+ * The Stripe flow deducts stock in `markOrderPaid`, which only runs once the
+ * money is confirmed. A manual order has no such confirmation to wait for, so the
+ * units are taken and the cart is emptied here. `stock_deducted` keeps this safe
+ * to repeat, and the admin "cancel and restock" option reverses it exactly once.
+ */
+export async function settleManualOrder(orderId: string): Promise<void> {
+  await getDb().transaction(async (tx) => {
+    const [order] = await tx
+      .select({ cartId: orders.cartId })
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) {
+      return;
+    }
+
+    const items = await tx
+      .select()
+      .from(orderItems)
+      .where(and(eq(orderItems.orderId, orderId), eq(orderItems.stockDeducted, false)));
+
+    for (const item of items) {
+      if (!item.productId) {
+        continue;
+      }
+
+      const updated = await tx
+        .update(products)
+        .set({ stock: sql`${products.stock} - ${item.quantity}` })
+        .where(and(eq(products.id, item.productId), gte(products.stock, item.quantity)))
+        .returning({ id: products.id });
+
+      if (updated.length === 0) {
+        // Ordered more than the shelf holds. The count stays at zero and the line
+        // stays unsettled, so a cancellation cannot credit units never taken.
+        console.warn(
+          `[orders] Order ${orderId} oversold product ${item.productId} (quantity ${item.quantity}).`,
+        );
+        continue;
+      }
+
+      await tx.update(orderItems).set({ stockDeducted: true }).where(eq(orderItems.id, item.id));
+    }
+
+    if (order.cartId) {
+      await tx.delete(cartItems).where(eq(cartItems.cartId, order.cartId));
+      await tx.update(carts).set({ status: "converted" }).where(eq(carts.id, order.cartId));
+    }
+  });
 }
 
 /**

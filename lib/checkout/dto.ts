@@ -17,8 +17,28 @@ export type ShippingDetails = {
   country: string;
 };
 
+/**
+ * How an order is paid for.
+ *
+ * `card` is only ever written by the Stripe path. The manual flow offers
+ * `advance` (transfer to the account in `lib/checkout/config.ts`) and `cod`.
+ */
+export type PaymentMethod = "card" | "advance" | "cod";
+
+/** The methods the checkout form offers while `ENABLE_STRIPE` is `false`. */
+export type ManualPaymentMethod = Exclude<PaymentMethod, "card">;
+
+/**
+ * What `POST /api/checkout` expects: the delivery details plus the chosen
+ * method. Everything chargeable — prices, stock, currency — is re-derived on the
+ * server from the cart.
+ */
+export type CheckoutRequest = ShippingDetails & {
+  paymentMethod: ManualPaymentMethod;
+};
+
 /** Per-field messages keyed by form field name, so the form can place them. */
-export type CheckoutFieldErrors = Partial<Record<keyof ShippingDetails, string>>;
+export type CheckoutFieldErrors = Partial<Record<keyof CheckoutRequest, string>>;
 
 /** Successful `POST /api/checkout`: where the browser should go next. */
 export type CheckoutResponse = {

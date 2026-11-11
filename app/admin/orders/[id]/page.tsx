@@ -19,6 +19,7 @@ import {
   FULFILLMENT_BADGE_VARIANT,
   FULFILLMENT_STATUS_LABELS,
   PAYMENT_BADGE_VARIANT,
+  PAYMENT_METHOD_LABELS,
   PAYMENT_STATUS_LABELS,
 } from "@/lib/orders/presentation";
 import { formatPrice } from "@/lib/products/presentation";
@@ -236,6 +237,10 @@ export default async function AdminOrderDetailsPage({ params }: OrderDetailsPage
         <aside className="flex flex-col gap-6">
           <Panel title="Payment" description="For money that arrived or was refunded elsewhere.">
             <dl className="flex flex-col gap-3">
+              <Detail
+                label="Method"
+                value={PAYMENT_METHOD_LABELS[record.paymentMethod]}
+              />
               <Detail
                 label="Paid"
                 value={record.paidAt ? DATE_TIME_FORMAT.format(record.paidAt) : "Not paid"}

@@ -50,6 +50,13 @@
       "when": 1794248710052,
       "tag": "0006_messy_demogoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794426917815,
+      "tag": "0007_eager_loki",
+      "breakpoints": true
     }
   ]
 }

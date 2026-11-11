@@ -1,4 +1,4 @@
-import type { OrderFulfillmentStatus, OrderStatus } from "@/lib/db/schema";
+import type { OrderFulfillmentStatus, OrderPaymentMethod, OrderStatus } from "@/lib/db/schema";
 
 type BadgeVariant = "default" | "secondary" | "outline" | "destructive";
 
@@ -8,6 +8,12 @@ export const FULFILLMENT_STATUS_LABELS: Record<OrderFulfillmentStatus, string> =
   shipped: "Shipped",
   delivered: "Delivered",
   cancelled: "Cancelled",
+};
+
+export const PAYMENT_METHOD_LABELS: Record<OrderPaymentMethod, string> = {
+  card: "Card (Stripe)",
+  advance: "Advance payment (SadaPay)",
+  cod: "Cash on delivery",
 };
 
 export const PAYMENT_STATUS_LABELS: Record<OrderStatus, string> = {

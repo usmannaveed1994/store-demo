@@ -14,11 +14,14 @@ export const metadata: Metadata = {
 };
 
 /**
- * Return URL for Stripe Checkout.
+ * Order confirmation page.
+ *
+ * With `ENABLE_STRIPE` off this is where `POST /api/checkout` redirects, keyed by
+ * `?order=`. With it on it is the hosted session's return URL, and `?session_id=`
+ * is re-read from Stripe before anything is fulfilled.
  *
  * `searchParams` is request data, so it is awaited inside the Suspense boundary
- * below and the shell still prerenders. The confirmation streams in once Stripe
- * has been asked about the session.
+ * below and the shell still prerenders.
  */
 export default function CheckoutSuccessPage({ searchParams }: PageProps<"/checkout/success">) {
   return (

@@ -11,6 +11,8 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import { DEFAULT_CURRENCY } from "../../products/constants";
+
 export const productStatusEnum = pgEnum("product_status", ["draft", "active", "archived"]);
 
 export const products = pgTable(
@@ -28,8 +30,8 @@ export const products = pgTable(
     price: numeric("price", { precision: 10, scale: 2 }).notNull(),
     /** Optional "was" price that powers sale badges when greater than `price`. */
     compareAtPrice: numeric("compare_at_price", { precision: 10, scale: 2 }),
-    /** ISO-4217 currency code, e.g. `USD`. */
-    currency: text("currency").notNull().default("USD"),
+    /** ISO-4217 currency code; the store trades in `PKR` unless told otherwise. */
+    currency: text("currency").notNull().default(DEFAULT_CURRENCY),
     /** Merchant stock-keeping unit. Unique when set; multiple `NULL`s allowed. */
     sku: text("sku"),
     /** Units on hand. Reserved for a future inventory ledger. */

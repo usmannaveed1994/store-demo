@@ -2,8 +2,8 @@ import {
   isCheckoutErrorResponse,
   isCheckoutResponse,
   type CheckoutFieldErrors,
+  type CheckoutRequest,
   type CheckoutResponse,
-  type ShippingDetails,
 } from "./dto";
 
 /** A failed checkout with the server's field-level messages, when it sent any. */
@@ -26,12 +26,15 @@ function requestErrorFrom(payload: unknown, status: number): CheckoutRequestErro
 }
 
 export const checkoutApi = {
-  /** Creates the order and returns the Stripe Checkout URL to redirect to. */
-  start: async (shipping: ShippingDetails): Promise<CheckoutResponse> => {
+  /**
+   * Creates the order and returns where to go next: Stripe's hosted page, or
+   * the confirmation page when the manual flow is in charge.
+   */
+  start: async (request: CheckoutRequest): Promise<CheckoutResponse> => {
     const response = await fetch("/api/checkout", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(shipping),
+      body: JSON.stringify(request),
     });
     const payload: unknown = await response.json().catch(() => null);
 

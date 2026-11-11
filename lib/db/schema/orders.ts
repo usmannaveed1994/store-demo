@@ -54,6 +54,20 @@ export const orderFulfillmentStatusEnum = pgEnum("order_fulfillment_status", [
 ]);
 
 /**
+ * How the shopper pays for an order.
+ *
+ * `card` is written by the Stripe flow only. The manual flow (`ENABLE_STRIPE ===
+ * false` in `lib/checkout/config.ts`) stores `advance` — a transfer to the store
+ * account — or `cod`. The default matches orders created before the manual flow
+ * existed, which were all card payments.
+ */
+export const orderPaymentMethodEnum = pgEnum("order_payment_method", [
+  "card",
+  "advance",
+  "cod",
+]);
+
+/**
  * One checkout attempt.
  *
  * Money and contact details are copied from the cart and the form at creation
@@ -65,13 +79,15 @@ export const orders = pgTable(
   "orders",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** Human-readable reference shown on the confirmation page, e.g. `DC-7F3A9C2E14`. */
+    /** Human-readable reference shown on the confirmation page, e.g. `DC64-7K2M9Q`. */
     orderNumber: text("order_number").notNull(),
     /** `null` for a guest checkout; the order still keeps the shipping snapshot. */
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     /** Kept for conversion bookkeeping only; the cart row itself is never deleted. */
     cartId: uuid("cart_id").references(() => carts.id, { onDelete: "set null" }),
     status: orderStatusEnum("status").notNull().default("pending"),
+    /** How the shopper chose to pay; see `orderPaymentMethodEnum`. */
+    paymentMethod: orderPaymentMethodEnum("payment_method").notNull().default("card"),
     fulfillmentStatus: orderFulfillmentStatusEnum("fulfillment_status")
       .notNull()
       .default("pending"),
@@ -158,3 +174,4 @@ export type OrderItem = typeof orderItems.$inferSelect;
 export type NewOrderItem = typeof orderItems.$inferInsert;
 export type OrderStatus = (typeof orderStatusEnum.enumValues)[number];
 export type OrderFulfillmentStatus = (typeof orderFulfillmentStatusEnum.enumValues)[number];
+export type OrderPaymentMethod = (typeof orderPaymentMethodEnum.enumValues)[number];
