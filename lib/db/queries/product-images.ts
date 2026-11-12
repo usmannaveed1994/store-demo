@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import { productImages, type ProductImage } from "@/lib/db/schema";
@@ -16,6 +16,34 @@ export async function listProductImages(productId: string): Promise<ProductImage
     .from(productImages)
     .where(eq(productImages.productId, productId))
     .orderBy(asc(productImages.position));
+}
+
+/**
+ * Gallery URLs for a whole page of products in one query, keyed by product id.
+ *
+ * The list page needs every row's photos for the Instagram dialog; asking per
+ * row would turn one page into twenty round-trips.
+ */
+export async function listImageUrlsByProductIds(
+  productIds: string[],
+): Promise<Map<string, string[]>> {
+  const imagesByProduct = new Map<string, string[]>();
+
+  if (productIds.length === 0) {
+    return imagesByProduct;
+  }
+
+  const rows = await getDb()
+    .select({ productId: productImages.productId, url: productImages.url })
+    .from(productImages)
+    .where(inArray(productImages.productId, productIds))
+    .orderBy(asc(productImages.productId), asc(productImages.position));
+
+  for (const row of rows) {
+    imagesByProduct.set(row.productId, [...(imagesByProduct.get(row.productId) ?? []), row.url]);
+  }
+
+  return imagesByProduct;
 }
 
 /**
