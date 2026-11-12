@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 
+import { Toaster } from "@/components/ui/sonner";
 import { requireAdmin } from "@/lib/admin/authorization";
 import { SITE_NAME } from "@/lib/metadata";
 
@@ -65,6 +66,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col px-6 py-10 sm:px-10">{children}</main>
+
+      {/* Mounted once for the admin area: publishing results outlive the dialog that starts them. */}
+      <Toaster />
     </div>
   );
 }

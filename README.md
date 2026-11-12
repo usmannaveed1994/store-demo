@@ -669,7 +669,7 @@ actions are reachable by direct POST.
 | -------------------- | --------------------------------------------------------------------- |
 | `/admin/orders`      | List with search (number, email, name) and payment/fulfilment filters   |
 | `/admin/orders/[id]` | Items, customer, addresses, payment, fulfilment and courier forms       |
-| `/admin/products`    | Catalogue list, create/edit form, publish toggle                       |
+| `/admin/products`    | Catalogue list, create/edit form, publish toggle, Instagram publishing |
 
 Fulfilment and payment are separate controls on the detail page:
 
@@ -688,7 +688,32 @@ Fulfilment and payment are separate controls on the detail page:
 
 The filters are plain `GET` forms, pagination fetches `PAGE_SIZE + 1` rows to
 detect a next page without a count query, and nothing on these pages needs client
-JavaScript except the courier form's `useActionState`.
+JavaScript except the courier form and the Instagram post dialog.
+
+### Publishing to Instagram
+
+Every row on `/admin/products` carries a **Post** button. `postProductToInstagram`
+(`app/admin/products/instagram-actions.ts`) publishes the product's photos, title,
+description and link to the connected Instagram business account through the
+Content Publishing API: create a container, wait for it to reach `FINISHED`, then
+`media_publish`. Two or more photos become a carousel.
+
+- Photos are re-encoded first. The uploader stores WebP and Instagram only ingests
+  JPEG, so `sharp` fits each photo to 1080px inside the 4:5–1.91:1 window —
+  padding rather than cropping — and the result is hosted on Vercel Blob just long
+  enough for Instagram to download it (`del()` in a `finally`). A relative image
+  path is fine because the store fetches its own photos instead of handing
+  Instagram a URL it might not reach.
+- `buildProductCaption` seeds the caption, and the dialog shows it in an editable
+  textarea so the preview is the text that publishes. The counter stops at
+  `MAX_CAPTION_LENGTH` and `postProductToInstagram` re-checks the submitted
+  length. Instagram does not make captions clickable, so the product URL travels
+  as text; with `APP_URL` empty it resolves to `localhost`, which the dialog warns
+  about before you publish.
+- Publishing needs a professional account linked to a Facebook page, a Meta app
+  with `instagram_content_publish`, and a long-lived token (~60 days) in
+  `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_ACCOUNT_ID`. `GET /api/instagram` (admin
+  only) checks those credentials and returns the account they reach.
 
 ## Auth notes
 

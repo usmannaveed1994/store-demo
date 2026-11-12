@@ -16,21 +16,31 @@ import {
 } from "@/components/ui/table";
 import { requireAdmin } from "@/lib/admin/authorization";
 import { readPage, readParam } from "@/lib/admin/search-params";
+import { listImageUrlsByProductIds } from "@/lib/db/queries/product-images";
 import { listProducts } from "@/lib/db/queries/products";
-import type { ProductStatus } from "@/lib/db/schema";
+import type { Product, ProductStatus } from "@/lib/db/schema";
 import { isRemoteUrl } from "@/lib/images";
+import { buildProductCaption } from "@/lib/instagram/caption";
+import { MAX_CAROUSEL_ITEMS } from "@/lib/instagram/constants";
+import { resolveSiteUrl } from "@/lib/metadata";
 import { formatPrice } from "@/lib/products/presentation";
 import { PRODUCT_STATUS_OPTIONS } from "@/lib/products/validation";
 
+import { InstagramPostDialog } from "./_components/instagram-post-dialog";
 import { setProductStatus } from "./actions";
+import { postProductToInstagram } from "./instagram-actions";
 
 export const metadata: Metadata = {
   title: "Products",
   robots: { index: false, follow: false },
 };
 
+/** A publish waits on Instagram's own processing, so the action outlives a default request. */
+export const maxDuration = 60;
+
 const PAGE_SIZE = 20;
 const DATE_FORMAT = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
 const STATUS_VALUES = new Set<string>(PRODUCT_STATUS_OPTIONS.map((option) => option.value));
 
@@ -47,6 +57,16 @@ type ProductsPageProps = {
 /** `searchParams` values arrive as `string | string[]`; the UI only ever needs the first. */
 function readStatus(value: string): ProductStatus | undefined {
   return STATUS_VALUES.has(value) ? (value as ProductStatus) : undefined;
+}
+
+/**
+ * Photos the Instagram action publishes, in the order it publishes them: the
+ * gallery first, then the primary image when it is not already part of it.
+ */
+function postImages(product: Product, gallery: string[] | undefined): string[] {
+  const urls = [...(gallery ?? []), ...(product.imageUrl ? [product.imageUrl] : [])];
+
+  return [...new Set(urls)].slice(0, MAX_CAROUSEL_ITEMS);
 }
 
 /** Current filters, carried across pagination. */
@@ -79,6 +99,11 @@ export default async function AdminProductsPage({ searchParams }: ProductsPagePr
 
   const hasNextPage = rows.length > PAGE_SIZE;
   const products = hasNextPage ? rows.slice(0, PAGE_SIZE) : rows;
+
+  // One query for the whole page: the Instagram dialog previews every row's photos.
+  const imagesByProduct = await listImageUrlsByProductIds(products.map((product) => product.id));
+  const siteUrl = resolveSiteUrl();
+  const siteIsLocal = LOCAL_HOSTNAMES.has(siteUrl.hostname);
 
   return (
     <div className="flex flex-col gap-8">
@@ -157,79 +182,97 @@ export default async function AdminProductsPage({ searchParams }: ProductsPagePr
                 </TableCell>
               </TableRow>
             ) : (
-              products.map((product) => (
-                <TableRow key={product.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      {product.imageUrl ? (
-                        <Image
-                          src={product.imageUrl}
-                          alt=""
-                          width={40}
-                          height={40}
-                          className="size-10 rounded-md object-cover"
-                          unoptimized={isRemoteUrl(product.imageUrl)}
-                        />
-                      ) : (
-                        <div aria-hidden className="size-10 rounded-md bg-muted" />
-                      )}
-                      <div className="min-w-0">
-                        <Link
-                          href={`/admin/products/${product.id}/edit`}
-                          className="block max-w-56 truncate text-sm font-medium text-foreground hover:underline"
-                        >
-                          {product.title}
-                        </Link>
-                        <span className="block max-w-56 truncate text-xs text-muted-foreground">
-                          /{product.slug}
-                        </span>
+              products.map((product) => {
+                const images = postImages(product, imagesByProduct.get(product.id));
+                const caption = buildProductCaption({
+                  title: product.title,
+                  description: product.description,
+                  url: new URL(`/products/${product.slug}`, siteUrl).toString(),
+                });
+
+                return (
+                  <TableRow key={product.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        {product.imageUrl ? (
+                          <Image
+                            src={product.imageUrl}
+                            alt=""
+                            width={40}
+                            height={40}
+                            className="size-10 rounded-md object-cover"
+                            unoptimized={isRemoteUrl(product.imageUrl)}
+                          />
+                        ) : (
+                          <div aria-hidden className="size-10 rounded-md bg-muted" />
+                        )}
+                        <div className="min-w-0">
+                          <Link
+                            href={`/admin/products/${product.id}/edit`}
+                            className="block max-w-56 truncate text-sm font-medium text-foreground hover:underline"
+                          >
+                            {product.title}
+                          </Link>
+                          <span className="block max-w-56 truncate text-xs text-muted-foreground">
+                            /{product.slug}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </TableCell>
+                    </TableCell>
 
-                  <TableCell>
-                    <Badge variant={STATUS_BADGE_VARIANT[product.status]}>
-                      {product.status === "active"
-                        ? "Active"
-                        : product.status === "draft"
-                          ? "Draft"
-                          : "Archived"}
-                    </Badge>
-                  </TableCell>
+                    <TableCell>
+                      <Badge variant={STATUS_BADGE_VARIANT[product.status]}>
+                        {product.status === "active"
+                          ? "Active"
+                          : product.status === "draft"
+                            ? "Draft"
+                            : "Archived"}
+                      </Badge>
+                    </TableCell>
 
-                  <TableCell className="text-sm text-foreground">
-                    {formatPrice(product.price, product.currency)}
-                  </TableCell>
+                    <TableCell className="text-sm text-foreground">
+                      {formatPrice(product.price, product.currency)}
+                    </TableCell>
 
-                  <TableCell className="text-sm tabular-nums text-foreground">
-                    {product.stock}
-                  </TableCell>
+                    <TableCell className="text-sm tabular-nums text-foreground">
+                      {product.stock}
+                    </TableCell>
 
-                  <TableCell className="text-sm text-muted-foreground">
-                    {DATE_FORMAT.format(product.updatedAt ?? product.createdAt)}
-                  </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {DATE_FORMAT.format(product.updatedAt ?? product.createdAt)}
+                    </TableCell>
 
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="outline" size="sm" asChild>
-                        <Link href={`/admin/products/${product.id}/edit`}>Edit</Link>
-                      </Button>
-
-                      <form action={setProductStatus}>
-                        <input type="hidden" name="id" value={product.id} />
-                        <input
-                          type="hidden"
-                          name="status"
-                          value={product.status === "archived" ? "active" : "archived"}
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-2">
+                        <InstagramPostDialog
+                          productId={product.id}
+                          productTitle={product.title}
+                          caption={caption}
+                          images={images}
+                          siteIsLocal={siteIsLocal}
+                          action={postProductToInstagram}
                         />
-                        <Button type="submit" variant="ghost" size="sm">
-                          {product.status === "archived" ? "Enable" : "Disable"}
+
+                        <Button variant="outline" size="sm" asChild>
+                          <Link href={`/admin/products/${product.id}/edit`}>Edit</Link>
                         </Button>
-                      </form>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+
+                        <form action={setProductStatus}>
+                          <input type="hidden" name="id" value={product.id} />
+                          <input
+                            type="hidden"
+                            name="status"
+                            value={product.status === "archived" ? "active" : "archived"}
+                          />
+                          <Button type="submit" variant="ghost" size="sm">
+                            {product.status === "archived" ? "Enable" : "Disable"}
+                          </Button>
+                        </form>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
